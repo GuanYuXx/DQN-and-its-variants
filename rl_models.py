@@ -122,7 +122,7 @@ def train_dqn_stream(width=4, height=4, epochs=500, batch_size=200, mem_size=100
         if i == epochs - 1:
             final_game = current_route
             
-        if loss_count > 0 and (i + 1) % 10 == 0:
+        if loss_count > 0:
             smooth = running_mean(all_losses)
             # SSE uses "data: <content>\n\n"
             yield f"data: {json.dumps({'type': 'progress', 'epoch': i + 1, 'loss': smooth})}\n\n"
