@@ -2,7 +2,7 @@ from GridBoard import *
 
 class Gridworld:
 
-    def __init__(self, width=4, height=4, mode='static'):
+    def __init__(self, width=4, height=4, mode='static', custom_positions=None):
         if width >= 4 and height >= 4:
             self.board = GridBoard(width=width, height=height)
         else:
@@ -18,12 +18,20 @@ class Gridworld:
         self.board.addPiece('Pit','-',(2,0))
         self.board.addPiece('Wall','W',(3,0))
 
-        if mode == 'static':
+        if custom_positions:
+            self.initGridCustom(custom_positions)
+        elif mode == 'static':
             self.initGridStatic()
         elif mode == 'player':
             self.initGridPlayer()
         else:
             self.initGridRand()
+
+    def initGridCustom(self, positions):
+        if 'Player' in positions: self.board.components['Player'].pos = positions['Player']
+        if 'Goal' in positions: self.board.components['Goal'].pos = positions['Goal']
+        if 'Pit' in positions: self.board.components['Pit'].pos = positions['Pit']
+        if 'Wall' in positions: self.board.components['Wall'].pos = positions['Wall']
 
     #Initialize stationary grid, all items are placed deterministically
     def initGridStatic(self):

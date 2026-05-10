@@ -18,7 +18,15 @@ def stream_train():
     if width < 4: width = 4
     if height < 4: height = 4
     
-    return Response(train_dqn_stream(width=width, height=height, epochs=epochs), mimetype='text/event-stream')
+    custom_positions = {}
+    for item in ['Player', 'Goal', 'Pit', 'Wall']:
+        val = request.args.get(item.lower())
+        if val:
+            parts = val.split(',')
+            if len(parts) == 2:
+                custom_positions[item] = (int(parts[0]), int(parts[1]))
+    
+    return Response(train_dqn_stream(width=width, height=height, epochs=epochs, custom_positions=custom_positions if custom_positions else None), mimetype='text/event-stream')
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

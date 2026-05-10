@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const heightInput = document.getElementById('height');
     const epochsInput = document.getElementById('epochs');
     const trainBtn = document.getElementById('train-btn');
+    const randomizeBtn = document.getElementById('randomize-btn');
     
     const gridContainer = document.getElementById('grid-container');
     const replayGridContainer = document.getElementById('replay-grid-container');
@@ -19,7 +20,55 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const colors = ['#3b82f6', '#f43f5e', '#8b5cf6', '#10b981', '#f59e0b'];
 
-    function initGrid(container, w, h) {
+    function makeDraggable(container) {
+        const cells = container.querySelectorAll('.cell');
+        let draggedCell = null;
+        
+        cells.forEach(cell => {
+            cell.setAttribute('draggable', 'true');
+            cell.style.cursor = 'grab';
+            
+            cell.addEventListener('dragstart', function(e) {
+                if (!this.classList.contains('player') && 
+                    !this.classList.contains('goal') && 
+                    !this.classList.contains('pit') && 
+                    !this.classList.contains('wall')) {
+                    e.preventDefault();
+                    return;
+                }
+                draggedCell = this;
+                e.dataTransfer.setData('text/plain', this.id);
+                setTimeout(() => this.style.opacity = '0.5', 0);
+            });
+            
+            cell.addEventListener('dragend', function() {
+                setTimeout(() => this.style.opacity = '1', 0);
+                draggedCell = null;
+            });
+            
+            cell.addEventListener('dragover', function(e) {
+                e.preventDefault();
+            });
+            
+            cell.addEventListener('drop', function(e) {
+                e.preventDefault();
+                if (this === draggedCell) return;
+                
+                const tempClasses = [...this.classList];
+                const tempText = this.innerText;
+                
+                this.className = draggedCell.className;
+                this.innerText = draggedCell.innerText;
+                
+                draggedCell.className = tempClasses.join(' ');
+                draggedCell.innerText = tempText;
+                
+                routeSvg.innerHTML = '';
+            });
+        });
+    }
+
+    function initGrid(container, w, h, isDraggable = false) {
         container.style.gridTemplateColumns = `repeat(${w}, 1fr)`;
         container.innerHTML = '';
         
@@ -43,6 +92,40 @@ document.addEventListener('DOMContentLoaded', () => {
                 container.appendChild(cell);
             }
         }
+        
+        if (isDraggable) makeDraggable(container);
+    }
+
+    function randomizePositions() {
+        const w = parseInt(widthInput.value);
+        const h = parseInt(heightInput.value);
+        const totalCells = w * h;
+        
+        const indices = [];
+        while(indices.length < 4) {
+            const r = Math.floor(Math.random() * totalCells);
+            if(indices.indexOf(r) === -1) indices.push(r);
+        }
+        
+        const cells = gridContainer.querySelectorAll('.cell');
+        cells.forEach(c => {
+            c.className = 'cell';
+            c.innerText = '';
+        });
+        
+        const types = [
+            { class: 'player', text: 'P' },
+            { class: 'goal', text: '+' },
+            { class: 'pit', text: '-' },
+            { class: 'wall', text: 'W' }
+        ];
+        
+        for(let i=0; i<4; i++) {
+            const cell = cells[indices[i]];
+            cell.classList.add(types[i].class);
+            cell.innerText = types[i].text;
+        }
+        routeSvg.innerHTML = '';
     }
 
     function updatePlayerPos(container, r, c) {
@@ -123,7 +206,6 @@ document.addEventListener('DOMContentLoaded', () => {
             path.setAttribute("stroke-linecap", "round");
             path.setAttribute("opacity", "0.8");
             
-            // Add a small circle at the end to show direction
             if (route.length > 0) {
                 const last = route[route.length-1];
                 const lx = last.pos[1] * (cellSize + gapSize) + cellSize/2 + 8;
@@ -171,13 +253,20 @@ document.addEventListener('DOMContentLoaded', () => {
         replayStatusEl.innerText = 'Playing...';
         replayStatusEl.className = 'status running badge';
         
+        // Sync starting position with the top grid
         const w = parseInt(widthInput.value);
-        updatePlayerPos(replayGridContainer, 0, w - 1);
-        await new Promise(r => setTimeout(r, 500));
+        const h = parseInt(heightInput.value);
         
-        for (let step of finalGame) {
-            updatePlayerPos(replayGridContainer, step.pos[0], step.pos[1]);
-            await new Promise(r => setTimeout(r, 200));
+        // Find player start in final game
+        if (finalGame.length > 0) {
+            const start = finalGame[0].pos;
+            updatePlayerPos(replayGridContainer, start[0], start[1]);
+            await new Promise(r => setTimeout(r, 500));
+            
+            for (let step of finalGame) {
+                updatePlayerPos(replayGridContainer, step.pos[0], step.pos[1]);
+                await new Promise(r => setTimeout(r, 200));
+            }
         }
         
         replayBtn.disabled = false;
@@ -188,12 +277,25 @@ document.addEventListener('DOMContentLoaded', () => {
     function setupGrids() {
         const w = parseInt(widthInput.value);
         const h = parseInt(heightInput.value);
-        initGrid(gridContainer, w, h);
-        initGrid(replayGridContainer, w, h);
+        initGrid(gridContainer, w, h, true);
+        initGrid(replayGridContainer, w, h, false);
         updatePlayerPos(gridContainer, 0, w - 1);
-        updatePlayerPos(replayGridContainer, 0, w - 1);
+        
+        // Copy layout from top grid to replay grid
+        syncReplayGrid();
+        
         routeSvg.innerHTML = '';
         routeSelectors.innerHTML = '<p class="placeholder-text">Routes will appear here after training.</p>';
+    }
+    
+    function syncReplayGrid() {
+        const cells = gridContainer.querySelectorAll('.cell');
+        const replayCells = replayGridContainer.querySelectorAll('.cell');
+        
+        cells.forEach((cell, i) => {
+            replayCells[i].className = cell.className;
+            replayCells[i].innerText = cell.innerText;
+        });
     }
 
     // Init
@@ -202,17 +304,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
     widthInput.addEventListener('change', setupGrids);
     heightInput.addEventListener('change', setupGrids);
+    randomizeBtn.addEventListener('click', () => {
+        randomizePositions();
+        syncReplayGrid();
+    });
     replayBtn.addEventListener('click', playFinalGame);
 
     trainBtn.addEventListener('click', () => {
-        setupGrids();
-        initChart();
-        
         const w = parseInt(widthInput.value);
         const h = parseInt(heightInput.value);
         const epochs = parseInt(epochsInput.value);
 
+        let playerPos = '', goalPos = '', pitPos = '', wallPos = '';
+        for (let r = 0; r < h; r++) {
+            for (let c = 0; c < w; c++) {
+                const cell = document.getElementById(`${gridContainer.id}-cell-${r}-${c}`);
+                if (cell.classList.contains('player')) playerPos = `${r},${c}`;
+                if (cell.classList.contains('goal')) goalPos = `${r},${c}`;
+                if (cell.classList.contains('pit')) pitPos = `${r},${c}`;
+                if (cell.classList.contains('wall')) wallPos = `${r},${c}`;
+            }
+        }
+        
+        syncReplayGrid();
+        initChart();
+
         trainBtn.disabled = true;
+        randomizeBtn.disabled = true;
         trainBtn.innerText = 'Training...';
         trainStatusEl.innerText = 'Training in progress...';
         trainStatusEl.className = 'status running badge';
@@ -223,7 +341,7 @@ document.addEventListener('DOMContentLoaded', () => {
         finalGame = null;
         capturedRoutes = [];
 
-        const source = new EventSource(`/api/stream_train?width=${w}&height=${h}&epochs=${epochs}`);
+        const source = new EventSource(`/api/stream_train?width=${w}&height=${h}&epochs=${epochs}&player=${playerPos}&goal=${goalPos}&pit=${pitPos}&wall=${wallPos}`);
         
         source.onmessage = function(event) {
             const data = JSON.parse(event.data);
@@ -236,6 +354,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 finalGame = data.final_game;
                 
                 trainBtn.disabled = false;
+                randomizeBtn.disabled = false;
                 trainBtn.innerText = 'Start Training';
                 trainStatusEl.innerText = 'Training Complete';
                 trainStatusEl.className = 'status success badge';
@@ -245,14 +364,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 buildRouteSelectors();
                 
-                // Play final game immediately upon completion
                 playFinalGame();
             }
         };
         
         source.onerror = function() {
             source.close();
-            console.log("SSE error or connection closed by server.");
+            console.log("SSE connection closed.");
         };
     });
 });

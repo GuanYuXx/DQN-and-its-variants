@@ -18,7 +18,7 @@ class DQNModel(torch.nn.Module):
     def forward(self, x):
         return self.model(x)
 
-def train_dqn_stream(width=4, height=4, epochs=500, batch_size=200, mem_size=1000, max_moves=50, gamma=0.9, epsilon=1.0, epsilon_decay=True):
+def train_dqn_stream(width=4, height=4, epochs=500, batch_size=200, mem_size=1000, max_moves=50, gamma=0.9, epsilon=1.0, epsilon_decay=True, custom_positions=None):
     input_size = 4 * width * height
     model = DQNModel(input_size)
     loss_fn = torch.nn.MSELoss()
@@ -45,7 +45,7 @@ def train_dqn_stream(width=4, height=4, epochs=500, batch_size=200, mem_size=100
         return y[-1]
     
     for i in range(epochs):
-        game = Gridworld(width=width, height=height, mode='static')
+        game = Gridworld(width=width, height=height, mode='static', custom_positions=custom_positions)
         
         state1_ = game.board.render_np().reshape(1, input_size) + np.random.rand(1, input_size) / 100.0
         state1 = torch.from_numpy(state1_).float()
@@ -122,7 +122,7 @@ def train_dqn_stream(width=4, height=4, epochs=500, batch_size=200, mem_size=100
         if i == epochs - 1:
             final_game = current_route
             
-        if loss_count > 0:
+        if loss_count > 0 and (i + 1) % 10 == 0:
             smooth = running_mean(all_losses)
             # SSE uses "data: <content>\n\n"
             yield f"data: {json.dumps({'type': 'progress', 'epoch': i + 1, 'loss': smooth})}\n\n"
