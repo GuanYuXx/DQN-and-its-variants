@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import random
+import json
 from collections import deque
 from Gridworld import Gridworld
 
@@ -17,7 +18,7 @@ class DQNModel(torch.nn.Module):
     def forward(self, x):
         return self.model(x)
 
-def train_dqn(width=4, height=4, epochs=1000, batch_size=200, mem_size=1000, max_moves=50, gamma=0.9, epsilon=1.0, epsilon_decay=True):
+def train_dqn_stream(width=4, height=4, epochs=500, batch_size=200, mem_size=1000, max_moves=50, gamma=0.9, epsilon=1.0, epsilon_decay=True):
     input_size = 4 * width * height
     model = DQNModel(input_size)
     loss_fn = torch.nn.MSELoss()
@@ -25,30 +26,40 @@ def train_dqn(width=4, height=4, epochs=1000, batch_size=200, mem_size=1000, max
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     
     action_set = {0: 'u', 1: 'd', 2: 'l', 3: 'r'}
-    
     replay = deque(maxlen=mem_size)
-    losses = []
     
-    # Store the last few games for visualization
-    last_games = []
+    interval = epochs // 5
+    captured_routes = []
+    final_game = []
+    
+    all_losses = []
+    
+    def running_mean(x, N=50):
+        if len(x) == 0: return 0
+        if len(x) < N: return sum(x) / len(x)
+        c = len(x) - N
+        y = np.zeros(c)
+        conv = np.ones(N)
+        for i in range(c):
+            y[i] = (np.array(x[i:i+N]) @ conv)/N
+        return y[-1]
     
     for i in range(epochs):
         game = Gridworld(width=width, height=height, mode='static')
         
-        # Add small random noise to state
         state1_ = game.board.render_np().reshape(1, input_size) + np.random.rand(1, input_size) / 100.0
         state1 = torch.from_numpy(state1_).float()
         
         status = 1
         mov = 0
-        game_history = []
+        current_route = []
+        loss_count = 0
         
         while(status == 1):
             mov += 1
             
-            # Record current pos
             player_pos = game.board.components['Player'].pos
-            game_history.append({'pos': [int(player_pos[0]), int(player_pos[1])]})
+            current_route.append({'pos': [int(player_pos[0]), int(player_pos[1])]})
             
             qval = model(state1)
             qval_ = qval.data.numpy()
@@ -89,35 +100,31 @@ def train_dqn(width=4, height=4, epochs=1000, batch_size=200, mem_size=1000, max
                 loss = loss_fn(X, Y.detach())
                 optimizer.zero_grad()
                 loss.backward()
-                losses.append(loss.item())
+                loss_val = loss.item()
+                all_losses.append(loss_val)
+                loss_count += 1
                 optimizer.step()
                 
             if reward != -1 or mov > max_moves:
                 status = 0
                 player_pos = game.board.components['Player'].pos
-                game_history.append({'pos': [int(player_pos[0]), int(player_pos[1])], 'reward': int(reward)})
+                current_route.append({'pos': [int(player_pos[0]), int(player_pos[1])], 'reward': int(reward)})
                 
         if epsilon_decay and epsilon > 0.1:
             epsilon -= (1/epochs)
             
-        if i >= epochs - 5:
-            last_games.append(game_history)
+        if interval > 0 and (i + 1) % interval == 0:
+            captured_routes.append({
+                'epoch': i + 1,
+                'route': current_route
+            })
             
-    # Calculate moving average of losses for smoother visualization
-    def running_mean(x, N=50):
-        if len(x) < N: return x
-        c = len(x) - N
-        y = np.zeros(c)
-        conv = np.ones(N)
-        for i in range(c):
-            y[i] = (np.array(x[i:i+N]) @ conv)/N
-        return list(y)
-        
-    smooth_losses = running_mean(losses)
-    
-    return {
-        'losses': smooth_losses,
-        'games': last_games,
-        'width': width,
-        'height': height
-    }
+        if i == epochs - 1:
+            final_game = current_route
+            
+        if loss_count > 0:
+            smooth = running_mean(all_losses)
+            # SSE uses "data: <content>\n\n"
+            yield f"data: {json.dumps({'type': 'progress', 'epoch': i + 1, 'loss': smooth})}\n\n"
+            
+    yield f"data: {json.dumps({'type': 'complete', 'routes': captured_routes, 'final_game': final_game})}\n\n"
