@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,6 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
+
 <body>
     <div class="container">
         <header>
@@ -26,71 +28,230 @@
                     <label for="height">Grid Height (Y):</label>
                     <input type="number" id="height" value="4" min="4" max="10">
                 </div>
-                <div class="control-group">
-                    <label for="epochs">Epochs:</label>
+                <div class="control-group" id="epochs-group">
                     <input type="number" id="epochs" value="500" min="100" max="5000" step="100">
                 </div>
-                <div class="control-actions" style="display: flex; gap: 1rem; align-items: flex-end; margin-top: 1.2rem;">
-                    <button id="randomize-btn" class="secondary-btn" style="margin-top: 0;">🎲 Randomize Positions</button>
+                <div class="control-group" style="width: 100%;">
+                    <label for="mode-select">Training Mode:</label>
+                    <select id="mode-select" class="input-select"
+                        style="width: 100%; padding: 0.8rem; background: var(--card-bg); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 8px;">
+                        <option value="basic">Basic DQN (Original)</option>
+                        <option value="compare">Compare: Double vs Dueling</option>
+                        <option value="lightning_random">Enhance DQN (Random Mode - Lightning)</option>
+                    </select>
+                </div>
+                <div id="lightning-controls" class="control-group"
+                    style="width: 100%; display: none; margin-top: 1rem;">
+                    <label for="grad-clip" style="display: flex; justify-content: space-between; align-items: center;">
+                        Gradient Clipping:
+                        <span style="font-size: 0.8rem; color: #94a3b8; font-weight: normal;">(範圍建議 0.1~10，0
+                            為不限制)</span>
+                    </label>
+                    <input type="number" id="grad-clip" value="1.0" min="0" max="10" step="0.1"
+                        style="width: 100%; margin-top: 0.5rem; padding: 0.8rem; background: var(--card-bg); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 8px;">
+                    <small
+                        style="color: #64748b; font-size: 0.8rem; display: block; margin-top: 0.5rem; line-height: 1.4;">
+                        數值過高會無法防止梯度爆炸，過低會限制模型學習。
+                    </small>
+                </div>
+                <div class="control-actions"
+                    style="display: flex; gap: 1rem; align-items: flex-end; margin-top: 1.2rem;">
+                    <button id="randomize-btn" class="secondary-btn" style="margin-top: 0;">🎲 Randomize
+                        Positions</button>
                     <button id="train-btn" class="primary-btn" style="margin-top: 0;">Start Training</button>
                 </div>
             </section>
 
-            <div class="main-content">
-                <section class="grid-panel card">
-                    <div class="panel-header">
-                        <h2>Sampled Memory Routes</h2>
+            <div id="basic-mode-content">
+                <section id="lightning-info-panel" class="info-panel card" style="display: none; margin-bottom: 2rem;">
+                    <h3>Enhance DQN (PyTorch Lightning) 特色與架構說明</h3>
+                    <div style="font-size: 0.9rem; color: #94a3b8; margin-top: 0.5rem; line-height: 1.6;">
+                        <p style="margin-bottom: 0.5rem;"><strong>封裝與重構 (Encapsulation):</strong><br>
+                            使用 PyTorch Lightning 將原本零散的訓練迴圈 (Training loop)、優化器 (Optimizer) 和損失計算封裝進 <code>LitDQN</code>
+                            模組中。這大幅提高了程式碼的可讀性與維護性，並且自動處理了很多硬體加速的底層邏輯。</p>
+                        <p style="margin-bottom: 0.5rem;"><strong>隨機模式 (Random Mode):</strong><br>
+                            在每一局訓練開始時，環境中的起點 (P)、終點 (+)、陷阱 (-) 以及牆壁 (W)
+                            皆會隨機生成。這迫使模型不能死背路線，而是必須學會「根據當前看到的畫面找出最佳策略」，大幅提升模型的泛化能力 (Generalization)。</p>
+                        <p><strong>訓練穩定技巧 (Training Tips):</strong><br>
+                            1. <b>Gradient Clipping (梯度裁剪)</b>: 設定
+                            <code>gradient_clip_val=1.0</code>，防止在面對隨機環境的意外狀況時，梯度過大導致神經網路權重崩潰。<br>
+                            2. <b>Learning Rate Scheduling (學習率排程)</b>: 使用 <code>ExponentialLR</code>
+                            讓學習率隨時間遞減，前期大步探索，後期穩定收斂。</p>
                     </div>
-                    <div class="route-selectors" id="route-selectors">
-                        <p class="placeholder-text">Routes will appear here after training.</p>
-                        <!-- Checkboxes injected by JS -->
-                    </div>
-                    
-                    <div id="grid-container-wrapper" style="position: relative; width: fit-content; margin: 0 auto;">
-                        <div id="grid-container" class="grid-container">
-                            <!-- Grid cells generated by JS -->
+                </section>
+                <div class="main-content">
+                    <section class="grid-panel card" id="sampled-routes-panel">
+                        <div class="panel-header">
+                            <h2>Sampled Memory Routes</h2>
                         </div>
-                        <svg id="route-svg" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20;"></svg>
-                    </div>
-                    
-                    <div class="legend">
-                        <div class="legend-item"><span class="cell player"></span> Player</div>
-                        <div class="legend-item"><span class="cell goal"></span> Goal</div>
-                        <div class="legend-item"><span class="cell pit"></span> Pit</div>
-                        <div class="legend-item"><span class="cell wall"></span> Wall</div>
-                    </div>
-                </section>
+                        <div class="route-selectors" id="route-selectors">
+                            <p class="placeholder-text">Routes will appear here after training.</p>
+                            <!-- Checkboxes injected by JS -->
+                        </div>
 
-                <section class="chart-panel card">
+                        <div id="grid-container-wrapper"
+                            style="position: relative; width: fit-content; margin: 0 auto;">
+                            <div id="grid-container" class="grid-container">
+                                <!-- Grid cells generated by JS -->
+                            </div>
+                            <svg id="route-svg"
+                                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20;"></svg>
+                        </div>
+
+                        <div class="legend">
+                            <div class="legend-item"><span class="cell player"></span> Player</div>
+                            <div class="legend-item"><span class="cell goal"></span> Goal</div>
+                            <div class="legend-item"><span class="cell pit"></span> Pit</div>
+                            <div class="legend-item"><span class="cell wall"></span> Wall</div>
+                        </div>
+                    </section>
+
+                    <section class="chart-panel card">
+                        <div class="panel-header">
+                            <h2>Training Loss</h2>
+                            <div style="display: flex; gap: 1rem; align-items: center;">
+                                <span id="lr-status" class="status badge"
+                                    style="display: none; background: #3b82f6; color: #fff;">LR: --</span>
+                                <span id="training-status" class="status badge">Awaiting Training...</span>
+                            </div>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="lossChart"></canvas>
+                        </div>
+                    </section>
+                </div>
+
+                <div class="bottom-content" style="margin-top: 2rem;">
+                    <section class="replay-panel card" id="replay-panel-wrapper">
+                        <div class="panel-header">
+                            <h2>Final Agent Animation Replay</h2>
+                            <span id="replay-status" class="status badge">Awaiting Training...</span>
+                        </div>
+
+                        <div class="replay-controls" style="text-align: center; margin-bottom: 1.5rem;">
+                            <button id="replay-btn" class="secondary-btn" disabled>▶ Play Animation</button>
+                        </div>
+
+                        <div id="replay-grid-container" class="grid-container">
+                            <!-- Replay grid cells generated by JS -->
+                        </div>
+                    </section>
+                </div>
+
+                <div id="interactive-validation-panel" class="card" style="display: none; margin-top: 2rem;">
                     <div class="panel-header">
-                        <h2>Training Loss</h2>
-                        <span id="training-status" class="status badge">Awaiting Training...</span>
+                        <h2>Interactive Validation Grid (Random Mode Test)</h2>
+                        <span id="validation-status" class="status badge">Awaiting Verification...</span>
                     </div>
-                    <div class="chart-container">
-                        <canvas id="lossChart"></canvas>
+                    <div style="text-align: center; margin-bottom: 1.5rem;">
+                        <p style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 1rem;">
+                            Drag and drop to rearrange the elements. 1 Player, 1 Goal, and random Traps/Walls.
+                        </p>
+                        <button id="verify-btn" class="primary-btn" disabled>🧠 Run Verification</button>
                     </div>
-                </section>
+                    <div id="validation-grid-wrapper" style="position: relative; width: fit-content; margin: 0 auto;">
+                        <div id="validation-grid-container" class="grid-container">
+                            <!-- Validation grid cells generated by JS -->
+                        </div>
+                        <svg id="validation-route-svg"
+                            style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20;"></svg>
+                    </div>
+                </div>
             </div>
-            
-            <div class="bottom-content" style="margin-top: 2rem;">
-                <section class="replay-panel card">
-                    <div class="panel-header">
-                        <h2>Final Agent Animation Replay</h2>
-                        <span id="replay-status" class="status badge">Awaiting Training...</span>
-                    </div>
-                    
-                    <div class="replay-controls" style="text-align: center; margin-bottom: 1.5rem;">
-                        <button id="replay-btn" class="secondary-btn" disabled>▶ Play Animation</button>
-                    </div>
-                    
-                    <div id="replay-grid-container" class="grid-container">
-                        <!-- Replay grid cells generated by JS -->
-                    </div>
-                </section>
+
+            <!-- Comparison Mode Content -->
+            <div id="compare-mode-content" style="display: none; gap: 2rem; margin-top: 2rem;">
+                <!-- Double DQN Side -->
+                <div class="compare-side" style="flex: 1; display: flex; flex-direction: column; gap: 2rem;">
+                    <h2 style="text-align: center; color: #f8fafc;">Double DQN</h2>
+
+                    <section class="info-panel card">
+                        <h3>方法特色與架構說明</h3>
+                        <div style="font-size: 0.9rem; color: #94a3b8; margin-top: 0.5rem; line-height: 1.6;">
+                            <p
+                                style="margin-bottom: 0.5rem; background: var(--bg-color); padding: 0.5rem; border-radius: 4px;">
+                                <strong>Formula:</strong>
+                                <code>y = r + &gamma; Q<sub>target</sub>(s', argmax<sub>a'</sub> Q<sub>online</sub>(s', a'; &theta;); &theta;')</code>
+                            </p>
+                            <p style="margin-bottom: 0.5rem;"><strong>設計方式 (Design Method):</strong><br>
+                                Double DQN 將動作的「選擇」與「評估」解耦。使用 <b>Online Network</b> 來選擇下一個狀態的最佳動作，然後使用 <b>Target
+                                    Network</b> 來評估這個動作的 Q 值。這能有效解決基礎 DQN 中經常發生的 Q 值過度高估 (Overestimation) 問題。</p>
+                            <p><strong>流程架構:</strong><br>
+                                狀態 <i>s'</i> &rarr; <b>Online Network</b> 選擇最佳動作 <i>a*</i> &rarr; <b>Target Network</b>
+                                評估該動作價值 &rarr; 計算目標 Q 值。</p>
+                        </div>
+                    </section>
+
+                    <section class="chart-panel card">
+                        <div class="panel-header">
+                            <h2>Training Loss</h2>
+                            <span id="training-status-db" class="status badge">Awaiting Training...</span>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="lossChartDb"></canvas>
+                        </div>
+                    </section>
+
+                    <section class="replay-panel card">
+                        <div class="panel-header">
+                            <h2>結果</h2>
+                        </div>
+                        <div style="position: relative; width: fit-content; margin: 0 auto;">
+                            <div id="replay-grid-container-db" class="grid-container"></div>
+                            <svg id="final-route-svg-db"
+                                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20;"></svg>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- Dueling DQN Side -->
+                <div class="compare-side" style="flex: 1; display: flex; flex-direction: column; gap: 2rem;">
+                    <h2 style="text-align: center; color: #f8fafc;">Dueling DQN</h2>
+
+                    <section class="info-panel card">
+                        <h3>方法特色與架構說明</h3>
+                        <div style="font-size: 0.9rem; color: #94a3b8; margin-top: 0.5rem; line-height: 1.6;">
+                            <p
+                                style="margin-bottom: 0.5rem; background: var(--bg-color); padding: 0.5rem; border-radius: 4px;">
+                                <strong>Formula:</strong>
+                                <code>Q(s,a) = V(s) + (A(s,a) - <span style="font-size: 0.8em;">1/|A|</span>&sum;A(s,a'))</code>
+                            </p>
+                            <p style="margin-bottom: 0.5rem;"><strong>設計方式 (Design Method):</strong><br>
+                                Dueling DQN 改變了神經網路的內部架構，在特徵擷取後，將資料流分為兩支：一支計算狀態本身的價值 <b>V(s)</b> (State
+                                Value)，另一支計算各動作的相對優勢 <b>A(s,a)</b>
+                                (Advantage)，最後再合併。這讓模型在某些「動作不影響最終結果」的狀態下，能更專注且準確地學習狀態價值。</p>
+                            <p><strong>流程架構:</strong><br>
+                                狀態 <i>s</i> &rarr; 共用特徵擷取 (Shared Feature Extractor) &rarr; 分流至 <b>Value Stream</b> 與
+                                <b>Advantage Stream</b> &rarr; 合併輸出 <i>Q(s,a)</i>。</p>
+                        </div>
+                    </section>
+
+                    <section class="chart-panel card">
+                        <div class="panel-header">
+                            <h2>Training Loss</h2>
+                            <span id="training-status-du" class="status badge">Awaiting Training...</span>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="lossChartDu"></canvas>
+                        </div>
+                    </section>
+
+                    <section class="replay-panel card">
+                        <div class="panel-header">
+                            <h2>結果</h2>
+                        </div>
+                        <div style="position: relative; width: fit-content; margin: 0 auto;">
+                            <div id="replay-grid-container-du" class="grid-container"></div>
+                            <svg id="final-route-svg-du"
+                                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20;"></svg>
+                        </div>
+                    </section>
+                </div>
             </div>
         </main>
     </div>
 
     <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
+
 </html>

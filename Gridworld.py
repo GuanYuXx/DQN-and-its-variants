@@ -28,10 +28,22 @@ class Gridworld:
             self.initGridRand()
 
     def initGridCustom(self, positions):
-        if 'Player' in positions: self.board.components['Player'].pos = positions['Player']
-        if 'Goal' in positions: self.board.components['Goal'].pos = positions['Goal']
-        if 'Pit' in positions: self.board.components['Pit'].pos = positions['Pit']
-        if 'Wall' in positions: self.board.components['Wall'].pos = positions['Wall']
+        if 'Player' in positions: self.board.components['Player'].pos = tuple(positions['Player'])
+        if 'Goal' in positions: self.board.components['Goal'].pos = tuple(positions['Goal'])
+        if 'Pit' in positions:
+            v = positions['Pit']
+            # list of positions: e.g. [(1,0), (2,1)] or [[1,0], [2,1]]
+            if isinstance(v, list) and len(v) > 0 and isinstance(v[0], (list, tuple)):
+                self.board.components['Pit'] = [BoardPiece('Pit', '-', tuple(p)) for p in v]
+            else:
+                self.board.components['Pit'].pos = tuple(v)
+        if 'Wall' in positions:
+            v = positions['Wall']
+            if isinstance(v, list) and len(v) > 0 and isinstance(v[0], (list, tuple)):
+                self.board.components['Wall'] = [BoardPiece('Wall', 'W', tuple(p)) for p in v]
+            else:
+                self.board.components['Wall'].pos = tuple(v)
+
 
     #Initialize stationary grid, all items are placed deterministically
     def initGridStatic(self):
@@ -52,7 +64,13 @@ class Gridworld:
         wall = self.board.components['Wall']
         pit = self.board.components['Pit']
 
-        all_positions = [player.pos, goal.pos, wall.pos, pit.pos]
+        all_positions = [player.pos, goal.pos]
+        if isinstance(wall, list): all_positions.extend([w.pos for w in wall])
+        else: all_positions.append(wall.pos)
+        
+        if isinstance(pit, list): all_positions.extend([p.pos for p in pit])
+        else: all_positions.append(pit.pos)
+
         if len(all_positions) > len(set(all_positions)):
             return False
 
@@ -70,34 +88,51 @@ class Gridworld:
     def initGridPlayer(self):
         self.initGridStatic()
         #place player randomly
-        self.board.components['Player'].pos = randPair(0, self.height), randPair(0, self.width)
+        self.board.components['Player'].pos = (np.random.randint(0, self.height), np.random.randint(0, self.width))
 
         if (not self.validateBoard()):
             self.initGridPlayer()
 
     #Initialize grid so that goal, pit, wall, player are all randomly placed
     def initGridRand(self):
-        self.board.components['Player'].pos = randPair(0, self.height), randPair(0, self.width)
-        self.board.components['Goal'].pos = randPair(0, self.height), randPair(0, self.width)
-        self.board.components['Pit'].pos = randPair(0, self.height), randPair(0, self.width)
-        self.board.components['Wall'].pos = randPair(0, self.height), randPair(0, self.width)
+        self.board.components['Player'].pos = (np.random.randint(0, self.height), np.random.randint(0, self.width))
+        self.board.components['Goal'].pos = (np.random.randint(0, self.height), np.random.randint(0, self.width))
+        
+        num_obstacles = min(self.width, self.height) - 1
+        num_pits = max(1, np.random.randint(1, num_obstacles)) if num_obstacles > 1 else 1
+        num_walls = num_obstacles - num_pits
+        if num_walls < 1 and num_obstacles > 1: num_walls = 1
+        elif num_obstacles <= 1: num_walls = 1
+        
+        pits = []
+        for i in range(num_pits):
+            pits.append(BoardPiece('Pit', '-', (np.random.randint(0, self.height), np.random.randint(0, self.width))))
+        self.board.components['Pit'] = pits
+        
+        walls = []
+        for i in range(num_walls):
+            walls.append(BoardPiece('Wall', 'W', (np.random.randint(0, self.height), np.random.randint(0, self.width))))
+        self.board.components['Wall'] = walls
 
         if (not self.validateBoard()):
             self.initGridRand()
 
     def validateMove(self, piece, addpos=(0,0)):
         outcome = 0 #0 is valid, 1 invalid, 2 lost game
-        pit = self.board.components['Pit'].pos
-        wall = self.board.components['Wall'].pos
+        pit = self.board.components['Pit']
+        wall = self.board.components['Wall']
         new_pos = addTuple(self.board.components[piece].pos, addpos)
         
-        if new_pos == wall:
+        pit_positions = [p.pos for p in pit] if isinstance(pit, list) else [pit.pos]
+        wall_positions = [w.pos for w in wall] if isinstance(wall, list) else [wall.pos]
+        
+        if new_pos in wall_positions:
             outcome = 1 #block move, player can't move to wall
         elif new_pos[0] > (self.height-1) or new_pos[0] < 0:
             outcome = 1 #outside vertical bounds
         elif new_pos[1] > (self.width-1) or new_pos[1] < 0:
             outcome = 1 #outside horizontal bounds
-        elif new_pos == pit:
+        elif new_pos in pit_positions:
             outcome = 2
 
         return outcome
@@ -122,7 +157,10 @@ class Gridworld:
             pass
 
     def reward(self):
-        if (self.board.components['Player'].pos == self.board.components['Pit'].pos):
+        pit = self.board.components['Pit']
+        pit_positions = [p.pos for p in pit] if isinstance(pit, list) else [pit.pos]
+        
+        if (self.board.components['Player'].pos in pit_positions):
             return -10
         elif (self.board.components['Player'].pos == self.board.components['Goal'].pos):
             return 10

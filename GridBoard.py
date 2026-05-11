@@ -33,7 +33,13 @@ class GridBoard:
 
     def addPiece(self, name, code, pos=(0,0)):
         newPiece = BoardPiece(name, code, pos)
-        self.components[name] = newPiece
+        if name in self.components:
+            if isinstance(self.components[name], list):
+                self.components[name].append(newPiece)
+            else:
+                self.components[name] = [self.components[name], newPiece]
+        else:
+            self.components[name] = newPiece
 
     #basically a set of boundary elements
     def addMask(self, name, mask, code):
@@ -50,15 +56,20 @@ class GridBoard:
             self.components[name].pos = pos
 
     def delPiece(self, name):
-        del self.components['name']
+        if name in self.components:
+            del self.components[name]
 
     def render(self):
         dtype = '<U2'
         displ_board = np.zeros((self.height, self.width), dtype=dtype)
         displ_board[:] = ' '
 
-        for name, piece in self.components.items():
-            displ_board[piece.pos] = piece.code
+        for name, piece_data in self.components.items():
+            if isinstance(piece_data, list):
+                for p in piece_data:
+                    displ_board[p.pos] = p.code
+            else:
+                displ_board[piece_data.pos] = piece_data.code
 
         for name, mask in self.masks.items():
             displ_board[mask.get_positions()] = mask.code
@@ -69,9 +80,14 @@ class GridBoard:
         num_pieces = len(self.components) + len(self.masks)
         displ_board = np.zeros((num_pieces, self.height, self.width), dtype=np.uint8)
         layer = 0
-        for name, piece in self.components.items():
-            pos = (layer,) + piece.pos
-            displ_board[pos] = 1
+        for name, piece_data in self.components.items():
+            if isinstance(piece_data, list):
+                for p in piece_data:
+                    pos = (layer,) + p.pos
+                    displ_board[pos] = 1
+            else:
+                pos = (layer,) + piece_data.pos
+                displ_board[pos] = 1
             layer += 1
 
         for name, mask in self.masks.items():
