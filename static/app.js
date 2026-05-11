@@ -421,17 +421,27 @@ document.addEventListener('DOMContentLoaded', () => {
     function syncReplayGrid() {
         const cells = gridContainer.querySelectorAll('.cell');
         const replayCells = replayGridContainer.querySelectorAll('.cell');
-        const replayCellsDb = replayGridContainerDb.querySelectorAll('.cell');
-        const replayCellsDu = replayGridContainerDu.querySelectorAll('.cell');
-        
         cells.forEach((cell, i) => {
             replayCells[i].className = cell.className;
             replayCells[i].innerText = cell.innerText;
-            replayCellsDb[i].className = cell.className;
-            replayCellsDb[i].innerText = cell.innerText;
-            replayCellsDu[i].className = cell.className;
-            replayCellsDu[i].innerText = cell.innerText;
         });
+        // Compare grids are managed independently in compare mode — do NOT sync
+        // the main grid's Player into them. We only copy Goal/Pit/Wall here as a
+        // safety net for non-compare modes that still expect parity.
+        if (modeSelect.value !== 'compare') {
+            const replayCellsDb = replayGridContainerDb.querySelectorAll('.cell');
+            const replayCellsDu = replayGridContainerDu.querySelectorAll('.cell');
+            cells.forEach((cell, i) => {
+                if (replayCellsDb[i]) {
+                    replayCellsDb[i].className = cell.className;
+                    replayCellsDb[i].innerText = cell.innerText;
+                }
+                if (replayCellsDu[i]) {
+                    replayCellsDu[i].className = cell.className;
+                    replayCellsDu[i].innerText = cell.innerText;
+                }
+            });
+        }
     }
 
     // Init
@@ -440,16 +450,21 @@ document.addEventListener('DOMContentLoaded', () => {
     
     modeSelect.addEventListener('change', (e) => {
         const isLightning = e.target.value === 'lightning_random';
-        if (e.target.value === 'compare') {
+        const isCompare   = e.target.value === 'compare';
+        if (isCompare) {
             basicModeContent.style.display = 'none';
             compareModeContent.style.display = 'flex';
-            if (lossChartDb) lossChartDb.resize();
-            if (lossChartDu) lossChartDu.resize();
+            resetCompare();
         } else {
             basicModeContent.style.display = 'block';
             compareModeContent.style.display = 'none';
             if (lossChart && !isLightning) lossChart.resize();
         }
+        // Hide Start Training / Randomize / epochs in compare mode (offline pre-trained)
+        if (trainBtn)        trainBtn.style.display      = isCompare ? 'none' : '';
+        if (randomizeBtn)    randomizeBtn.style.display  = isCompare ? 'none' : '';
+        const epochsGroupCmp = document.getElementById('epochs-group');
+        if (epochsGroupCmp)  epochsGroupCmp.style.display = isCompare ? 'none' : '';
         
         const lightningInfoPanel = document.getElementById('lightning-info-panel');
         if (lightningInfoPanel) {
@@ -473,11 +488,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const lightningImagePanel = document.getElementById('lightning-image-panel');
         if (lightningImagePanel) lightningImagePanel.style.display = isLightning ? 'block' : 'none';
 
-        // Hide Start Training button and epochs in random mode
+        // Hide Start Training button and epochs in random mode OR compare mode
         const trainBtn_ = document.getElementById('train-btn');
-        if (trainBtn_) trainBtn_.style.display = isLightning ? 'none' : '';
+        if (trainBtn_) trainBtn_.style.display = (isLightning || isCompare) ? 'none' : '';
         const epochsGroup = document.getElementById('epochs-group');
-        if (epochsGroup) epochsGroup.style.display = isLightning ? 'none' : '';
+        if (epochsGroup) epochsGroup.style.display = (isLightning || isCompare) ? 'none' : '';
 
         // Show validation grid immediately in lightning_random mode
         const interactiveValidationPanel = document.getElementById('interactive-validation-panel');
@@ -498,10 +513,17 @@ document.addEventListener('DOMContentLoaded', () => {
         trainStatusEl.className = 'status badge';
         replayStatusEl.innerText = 'Awaiting Training...';
         replayStatusEl.className = 'status badge';
-        trainStatusDb.innerText = 'Awaiting Training...';
-        trainStatusDb.className = 'status badge';
-        trainStatusDu.innerText = 'Awaiting Training...';
-        trainStatusDu.className = 'status badge';
+        if (isCompare) {
+            trainStatusDb.innerText = 'Pre-trained Loaded';
+            trainStatusDb.className = 'status success badge';
+            trainStatusDu.innerText = 'Pre-trained Loaded';
+            trainStatusDu.className = 'status success badge';
+        } else {
+            trainStatusDb.innerText = 'Awaiting Training...';
+            trainStatusDb.className = 'status badge';
+            trainStatusDu.innerText = 'Awaiting Training...';
+            trainStatusDu.className = 'status badge';
+        }
         if (!isLightning) {
             trainBtn.innerText = 'Start Training';
             trainBtn.disabled = false;
@@ -643,6 +665,177 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     });
     
+    // ─────────────────────────────────────────────────────────────────────
+    // Compare-mode (offline pre-trained Double DQN + Dueling DQN)
+    // ─────────────────────────────────────────────────────────────────────
+    let comparePlayerPos = null;     // [r, c] or null
+    let compareIsLoading = false;
+
+    function resetCompare() {
+        comparePlayerPos = null;
+        // Remove any Player markers from the two compare grids; keep Goal/Pit/Wall
+        [replayGridContainerDb, replayGridContainerDu].forEach(grid => {
+            if (!grid) return;
+            grid.querySelectorAll('.cell.player').forEach(el => {
+                el.classList.remove('player');
+                if (el.innerText === 'P') el.innerText = '';
+            });
+        });
+        if (finalRouteSvgDb) finalRouteSvgDb.innerHTML = '';
+        if (finalRouteSvgDu) finalRouteSvgDu.innerHTML = '';
+
+        const posDisp = document.getElementById('compare-player-pos');
+        if (posDisp) { posDisp.innerText = '未選擇'; posDisp.style.color = '#f59e0b'; }
+        const resDb = document.getElementById('compare-result-db');
+        const resDu = document.getElementById('compare-result-du');
+        if (resDb) resDb.innerText = '';
+        if (resDu) resDu.innerText = '';
+        const cmpStatus = document.getElementById('compare-status');
+        if (cmpStatus) {
+            cmpStatus.innerText = '已載入預訓練模型';
+            cmpStatus.className = 'status success badge';
+        }
+    }
+
+    function handleCompareCellClick(r, c) {
+        // Only allow Player start on empty cells (not on Goal/Pit/Wall)
+        const refId = `${replayGridContainerDb.id}-cell-${r}-${c}`;
+        const refCell = document.getElementById(refId);
+        if (!refCell) return;
+        if (refCell.classList.contains('goal') ||
+            refCell.classList.contains('pit')  ||
+            refCell.classList.contains('wall')) {
+            const cmpStatus = document.getElementById('compare-status');
+            if (cmpStatus) {
+                cmpStatus.innerText = '此格被 Goal/Pit/Wall 佔用，請點空格';
+                cmpStatus.className = 'status badge';
+                cmpStatus.style.background = '#f43f5e';
+                cmpStatus.style.color = '#fff';
+                setTimeout(() => {
+                    cmpStatus.style.background = '';
+                    cmpStatus.style.color = '';
+                    cmpStatus.innerText = '已載入預訓練模型';
+                    cmpStatus.className = 'status success badge';
+                }, 2000);
+            }
+            return;
+        }
+        comparePlayerPos = [r, c];
+        [replayGridContainerDb, replayGridContainerDu].forEach(grid => {
+            grid.querySelectorAll('.cell.player').forEach(el => {
+                el.classList.remove('player');
+                if (el.innerText === 'P') el.innerText = '';
+            });
+            const cell = document.getElementById(`${grid.id}-cell-${r}-${c}`);
+            if (cell) {
+                cell.classList.add('player');
+                cell.innerText = 'P';
+            }
+        });
+        // Old routes/results are stale once the player moves
+        if (finalRouteSvgDb) finalRouteSvgDb.innerHTML = '';
+        if (finalRouteSvgDu) finalRouteSvgDu.innerHTML = '';
+        const resDb = document.getElementById('compare-result-db');
+        const resDu = document.getElementById('compare-result-du');
+        if (resDb) resDb.innerText = '';
+        if (resDu) resDu.innerText = '';
+
+        const posDisp = document.getElementById('compare-player-pos');
+        if (posDisp) { posDisp.innerText = `(${r}, ${c})`; posDisp.style.color = '#f59e0b'; }
+    }
+
+    function _renderCompareSummary(elemId, route, label) {
+        const el = document.getElementById(elemId);
+        if (!el || !route || route.length === 0) return;
+        const last = route[route.length - 1];
+        const steps = route.length - 1;
+        let msg;
+        if (last.reward === 10)       msg = `${label}: ✅ 抵達 Goal（${steps} 步）`;
+        else if (last.reward === -10) msg = `${label}: ❌ 掉入 Pit（${steps} 步）`;
+        else                          msg = `${label}: ⏱ 超出步數上限（${steps} 步）`;
+        el.innerText = msg;
+    }
+
+    async function playCompare() {
+        const cmpStatus = document.getElementById('compare-status');
+        const playBtn = document.getElementById('compare-play-btn');
+        if (comparePlayerPos === null) {
+            if (cmpStatus) {
+                cmpStatus.innerText = '請先在任一網格點擊空白格設定 Player 起點';
+                cmpStatus.className = 'status badge';
+                cmpStatus.style.background = '#f43f5e';
+                cmpStatus.style.color = '#fff';
+                setTimeout(() => {
+                    cmpStatus.style.background = '';
+                    cmpStatus.style.color = '';
+                    cmpStatus.innerText = '已載入預訓練模型';
+                    cmpStatus.className = 'status success badge';
+                }, 2500);
+            }
+            return;
+        }
+        if (compareIsLoading) return;
+        compareIsLoading = true;
+        if (playBtn) { playBtn.disabled = true; playBtn.innerText = 'Verifying...'; }
+        if (cmpStatus) {
+            cmpStatus.innerText = 'Verifying...';
+            cmpStatus.className = 'status running badge';
+        }
+        const payload = {
+            width:  parseInt(widthInput.value),
+            height: parseInt(heightInput.value),
+            player_pos: comparePlayerPos,
+        };
+        try {
+            const [rDb, rDu] = await Promise.all([
+                fetch('/api/verify_double',  { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) }),
+                fetch('/api/verify_dueling', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) }),
+            ]);
+            const dataDb = await rDb.json();
+            const dataDu = await rDu.json();
+            if (dataDb.status === 'success') {
+                drawStaticRoute(dataDb.route, finalRouteSvgDb, '#f59e0b');
+                _renderCompareSummary('compare-result-db', dataDb.route, 'Double');
+            } else { console.error('verify_double error:', dataDb.message); }
+            if (dataDu.status === 'success') {
+                drawStaticRoute(dataDu.route, finalRouteSvgDu, '#f59e0b');
+                _renderCompareSummary('compare-result-du', dataDu.route, 'Dueling');
+            } else { console.error('verify_dueling error:', dataDu.message); }
+            if (cmpStatus) {
+                cmpStatus.innerText = 'Verification Complete';
+                cmpStatus.className = 'status success badge';
+            }
+        } catch (err) {
+            console.error(err);
+            if (cmpStatus) {
+                cmpStatus.innerText = 'Error';
+                cmpStatus.className = 'status badge';
+            }
+        } finally {
+            compareIsLoading = false;
+            if (playBtn) { playBtn.disabled = false; playBtn.innerText = '▶ Play'; }
+        }
+    }
+
+    // Event delegation: cells inside compare grids get re-rendered by initGrid(),
+    // so bind on the container once instead of per-cell.
+    [replayGridContainerDb, replayGridContainerDu].forEach(grid => {
+        if (!grid) return;
+        grid.addEventListener('click', (e) => {
+            if (modeSelect.value !== 'compare') return;
+            const cell = e.target.closest('.cell');
+            if (!cell || !cell.id) return;
+            const m = cell.id.match(/-cell-(\d+)-(\d+)$/);
+            if (!m) return;
+            handleCompareCellClick(parseInt(m[1]), parseInt(m[2]));
+        });
+    });
+
+    const comparePlayBtn  = document.getElementById('compare-play-btn');
+    if (comparePlayBtn)  comparePlayBtn.addEventListener('click', playCompare);
+    const compareResetBtn = document.getElementById('compare-reset-btn');
+    if (compareResetBtn) compareResetBtn.addEventListener('click', resetCompare);
+
     // Validation Grid Logic
     let draggedElement = null;
     function initValidationGrid(w, h) {

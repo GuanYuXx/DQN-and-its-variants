@@ -13,12 +13,16 @@ class Gridworld:
         self.height = self.board.height
 
         #Add pieces, positions will be updated later
-        self.board.addPiece('Player','P',(0,0))
+        self.board.addPiece('Player','P',(0,3))
         self.board.addPiece('Goal','+',(1,0))
         self.board.addPiece('Pit','-',(2,0))
         self.board.addPiece('Wall','W',(3,0))
 
-        if custom_positions:
+        if mode == 'player' and custom_positions and 'Player' not in custom_positions:
+            # Goal/Pit/Wall fixed by user; Player randomly placed on a free cell each episode
+            self.initGridCustom(custom_positions)
+            self._placePlayerRandomCustom()
+        elif custom_positions:
             self.initGridCustom(custom_positions)
         elif mode == 'static':
             self.initGridStatic()
@@ -26,6 +30,28 @@ class Gridworld:
             self.initGridPlayer()
         else:
             self.initGridRand()
+
+    def _placePlayerRandomCustom(self):
+        """Place Player on a random free cell (not overlapping Goal/Pit/Wall)."""
+        goal = self.board.components['Goal']
+        pit = self.board.components['Pit']
+        wall = self.board.components['Wall']
+
+        occupied = {goal.pos}
+        if isinstance(pit, list):
+            occupied.update(p.pos for p in pit)
+        else:
+            occupied.add(pit.pos)
+        if isinstance(wall, list):
+            occupied.update(w.pos for w in wall)
+        else:
+            occupied.add(wall.pos)
+
+        free = [(r, c) for r in range(self.height) for c in range(self.width) if (r, c) not in occupied]
+        if not free:
+            raise ValueError("No free cell available to place Player")
+        idx = np.random.randint(0, len(free))
+        self.board.components['Player'].pos = free[idx]
 
     def initGridCustom(self, positions):
         if 'Player' in positions: self.board.components['Player'].pos = tuple(positions['Player'])

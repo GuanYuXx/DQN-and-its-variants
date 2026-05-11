@@ -201,7 +201,7 @@ def train_comparison_stream(width=4, height=4, epochs=500, batch_size=200, mem_s
     
     for i in range(epochs):
         # ---------------- Double DQN Episode ----------------
-        game_db = Gridworld(width=width, height=height, mode='static', custom_positions=custom_positions)
+        game_db = Gridworld(width=width, height=height, mode='player', custom_positions=custom_positions)
         state1_db_ = game_db.board.render_np().reshape(1, input_size) + np.random.rand(1, input_size) / 100.0
         state1_db = torch.from_numpy(state1_db_).float()
         
@@ -261,7 +261,7 @@ def train_comparison_stream(width=4, height=4, epochs=500, batch_size=200, mem_s
                 current_route_db.append({'pos': [int(player_pos[0]), int(player_pos[1])], 'reward': int(reward_db)})
 
         # ---------------- Dueling DQN Episode ----------------
-        game_du = Gridworld(width=width, height=height, mode='static', custom_positions=custom_positions)
+        game_du = Gridworld(width=width, height=height, mode='player', custom_positions=custom_positions)
         state1_du_ = game_du.board.render_np().reshape(1, input_size) + np.random.rand(1, input_size) / 100.0
         state1_du = torch.from_numpy(state1_du_).float()
         
@@ -337,6 +337,10 @@ def train_comparison_stream(width=4, height=4, epochs=500, batch_size=200, mem_s
             smooth_du = running_mean(all_losses_dueling)
             yield f"data: {json.dumps({'type': 'progress', 'epoch': i + 1, 'loss_double': smooth_db, 'loss_dueling': smooth_du})}\n\n"
             
+    # Save trained models for later verification with user-chosen Player start
+    torch.save(model_double.state_dict(), 'trained_double.pth')
+    torch.save(model_dueling.state_dict(), 'trained_dueling.pth')
+
     yield f"data: {json.dumps({'type': 'complete', 'routes_double': captured_routes_double, 'final_game_double': final_game_double, 'routes_dueling': captured_routes_dueling, 'final_game_dueling': final_game_dueling})}\n\n"
 
 class DummyDataset(Dataset):
@@ -560,3 +564,58 @@ def verify_lightning_model(custom_positions, width=4, height=4):
         state_tensor = torch.from_numpy(next_np).unsqueeze(0)
 
     return route
+
+
+def _verify_compare_rollout(net, custom_positions, player_pos, width, height, max_moves=50):
+    """Shared rollout: place Player at user-chosen start, run greedy policy until terminal or max_moves."""
+    input_size = 4 * width * height
+    action_set = {0: 'u', 1: 'd', 2: 'l', 3: 'r'}
+
+    cp = dict(custom_positions) if custom_positions else {}
+    cp['Player'] = tuple(player_pos)
+
+    game = Gridworld(width=width, height=height, mode='static', custom_positions=cp)
+
+    state_np = game.board.render_np().astype(np.float32).flatten()
+    state_tensor = torch.from_numpy(state_np).unsqueeze(0)
+
+    route = [{'pos': [int(game.board.components['Player'].pos[0]),
+                       int(game.board.components['Player'].pos[1])]}]
+
+    for _ in range(max_moves):
+        with torch.no_grad():
+            qval = net(state_tensor)
+        action_idx = int(qval.argmax(dim=1).item())
+
+        game.makeMove(action_set[action_idx])
+        reward = game.reward()
+
+        player_pos_now = game.board.components['Player'].pos
+        route.append({'pos': [int(player_pos_now[0]), int(player_pos_now[1])],
+                      'reward': int(reward)})
+
+        if reward != -1:  # terminal: +10 goal or -10 pit
+            break
+
+        next_np = game.board.render_np().astype(np.float32).flatten()
+        state_tensor = torch.from_numpy(next_np).unsqueeze(0)
+
+    return route
+
+
+def verify_double_model(custom_positions, player_pos, width=4, height=4):
+    input_size = 4 * width * height
+    net = DQNModel(input_size)
+    state_dict = torch.load('trained_double.pth', map_location='cpu', weights_only=True)
+    net.load_state_dict(state_dict)
+    net.eval()
+    return _verify_compare_rollout(net, custom_positions, player_pos, width, height)
+
+
+def verify_dueling_model(custom_positions, player_pos, width=4, height=4):
+    input_size = 4 * width * height
+    net = DuelingDQNModel(input_size)
+    state_dict = torch.load('trained_dueling.pth', map_location='cpu', weights_only=True)
+    net.load_state_dict(state_dict)
+    net.eval()
+    return _verify_compare_rollout(net, custom_positions, player_pos, width, height)

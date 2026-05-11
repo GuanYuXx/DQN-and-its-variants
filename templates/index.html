@@ -201,93 +201,151 @@
             </div>
 
             <!-- Comparison Mode Content -->
-            <div id="compare-mode-content" style="display: none; gap: 2rem; margin-top: 2rem;">
-                <!-- Double DQN Side -->
-                <div class="compare-side" style="flex: 1; display: flex; flex-direction: column; gap: 2rem;">
-                    <h2 style="text-align: center; color: #f8fafc;">Double DQN</h2>
+            <div id="compare-mode-content" style="display: none; flex-direction: column; gap: 2rem; margin-top: 2rem;">
 
-                    <section class="info-panel card">
-                        <h3>方法特色與架構說明</h3>
-                        <div style="font-size: 0.9rem; color: #94a3b8; margin-top: 0.5rem; line-height: 1.6;">
-                            <p
-                                style="margin-bottom: 0.5rem; background: var(--bg-color); padding: 0.5rem; border-radius: 4px;">
-                                <strong>Formula:</strong>
-                                <code>y = r + &gamma; Q<sub>target</sub>(s', argmax<sub>a'</sub> Q<sub>online</sub>(s', a'; &theta;); &theta;')</code>
-                            </p>
-                            <p style="margin-bottom: 0.5rem;"><strong>設計方式 (Design Method):</strong><br>
-                                Double DQN 將動作的「選擇」與「評估」解耦。使用 <b>Online Network</b> 來選擇下一個狀態的最佳動作，然後使用 <b>Target
-                                    Network</b> 來評估這個動作的 Q 值。這能有效解決基礎 DQN 中經常發生的 Q 值過度高估 (Overestimation) 問題。</p>
-                            <p><strong>流程架構:</strong><br>
-                                狀態 <i>s'</i> &rarr; <b>Online Network</b> 選擇最佳動作 <i>a*</i> &rarr; <b>Target Network</b>
-                                評估該動作價值 &rarr; 計算目標 Q 值。</p>
-                        </div>
-                    </section>
+                <!-- Shared control bar: Player picker + Play button -->
+                <section id="compare-control-panel" class="card">
+                    <div class="panel-header">
+                        <h2>離線預訓練模型 — 互動驗證</h2>
+                        <span id="compare-status" class="status success badge">已載入預訓練模型</span>
+                    </div>
+                    <p style="font-size: 0.9rem; color: #94a3b8; line-height: 1.6;">
+                        本模式 <b>不進行線上訓練</b>。Double DQN 與 Dueling DQN 已由
+                        <code>train_offline_compare.py</code> 以
+                        <code>mode='player'</code> 固定 Goal/Pit/Wall、隨機 Player 起點預訓練完成。<br>
+                        <b>使用方式：</b>在下方任一網格上點擊空白格設定 Player 起點，再按
+                        <b>▶ Play</b>，兩個模型會同時做一次 rollout 並把路徑畫在各自的網格上。
+                    </p>
+                    <div id="compare-player-info"
+                        style="margin-top: 0.8rem; font-size: 0.95rem; color: #f8fafc;">
+                        Player 起點：<span id="compare-player-pos" style="color: #f59e0b;">未選擇</span>
+                    </div>
+                    <div style="display: flex; gap: 1rem; align-items: center; margin-top: 1rem;">
+                        <button id="compare-play-btn" class="primary-btn">▶ Play</button>
+                        <button id="compare-reset-btn" class="secondary-btn">Reset</button>
+                        <span id="compare-result-db" style="color: #f43f5e; font-size: 0.88rem;"></span>
+                        <span id="compare-result-du" style="color: #10b981; font-size: 0.88rem;"></span>
+                    </div>
+                </section>
 
-                    <section class="chart-panel card">
-                        <div class="panel-header">
-                            <h2>Training Loss</h2>
-                            <span id="training-status-db" class="status badge">Awaiting Training...</span>
-                        </div>
-                        <div class="chart-container">
-                            <canvas id="lossChartDb"></canvas>
-                        </div>
-                    </section>
+                <!-- Side-by-side: Double DQN  |  Dueling DQN -->
+                <div style="display: flex; gap: 2rem;">
 
-                    <section class="replay-panel card">
-                        <div class="panel-header">
-                            <h2>結果</h2>
-                        </div>
-                        <div style="position: relative; width: fit-content; margin: 0 auto;">
-                            <div id="replay-grid-container-db" class="grid-container"></div>
-                            <svg id="final-route-svg-db"
-                                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20;"></svg>
-                        </div>
-                    </section>
+                    <!-- Double DQN Side -->
+                    <div class="compare-side" style="flex: 1; display: flex; flex-direction: column; gap: 2rem;">
+                        <h2 style="text-align: center; color: #f8fafc;">Double DQN</h2>
+
+                        <section class="info-panel card">
+                            <h3>方法特色與架構說明</h3>
+                            <div style="font-size: 0.9rem; color: #94a3b8; margin-top: 0.5rem; line-height: 1.6;">
+                                <p
+                                    style="margin-bottom: 0.5rem; background: var(--bg-color); padding: 0.5rem; border-radius: 4px;">
+                                    <strong>Formula:</strong>
+                                    <code>y = r + &gamma; Q<sub>target</sub>(s', argmax<sub>a'</sub> Q<sub>online</sub>(s', a'; &theta;); &theta;')</code>
+                                </p>
+                                <p style="margin-bottom: 0.5rem;"><strong>設計方式:</strong><br>
+                                    將動作的「選擇」與「評估」解耦。使用 <b>Online Network</b> 選擇下一個狀態的最佳動作，再用 <b>Target Network</b>
+                                    評估該動作的 Q 值，緩解 Vanilla DQN 的 Q-value Overestimation。</p>
+                                <p style="margin-bottom: 0.5rem;"><strong>網路架構:</strong><br>
+                                    Linear(64 → 150) → ReLU → Linear(150 → 100) → ReLU → Linear(100 → 4)。
+                                    Online 與 Target 同形狀；Target 每 500 環境步同步一次。</p>
+                                <p style="margin: 0 0 0.6rem;"><strong>離線訓練超參數:</strong></p>
+                                <table class="hparam-table">
+                                    <thead>
+                                        <tr><th>項目</th><th>設定</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr><td>Epochs</td><td><code>1500</code></td></tr>
+                                        <tr><td>Max moves / episode</td><td><code>50</code></td></tr>
+                                        <tr><td>Batch size</td><td><code>200</code></td></tr>
+                                        <tr><td>Replay buffer</td><td><code>deque(10,000)</code>，uniform sampling</td></tr>
+                                        <tr><td>Discount γ</td><td><code>0.9</code></td></tr>
+                                        <tr><td>Optimizer</td><td><code>Adam, lr=1e-3</code></td></tr>
+                                        <tr><td>LR scheduler</td><td><code>CosineAnnealingLR</code> (1e-3 → 1e-5)</td></tr>
+                                        <tr><td>ε-greedy</td><td><code>1.0 → 0.05</code>，前 70% epochs 線性衰減</td></tr>
+                                        <tr><td>Target network sync</td><td>每 <code>500</code> 環境步</td></tr>
+                                        <tr><td>Gradient clipping</td><td><code>clip_grad_norm_ ≤ 1.0</code></td></tr>
+                                        <tr><td>Loss</td><td>MSE</td></tr>
+                                        <tr><td><b>Target rule</b></td><td><b>Double</b>：<code>y = r + γ·Q<sub>target</sub>(s', argmax Q<sub>online</sub>(s'))</code></td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
+
+                        <section class="replay-panel card">
+                            <div class="panel-header">
+                                <h2>結果（Double）</h2>
+                                <span id="training-status-db" class="status success badge">Pre-trained Loaded</span>
+                            </div>
+                            <div style="position: relative; width: fit-content; margin: 0 auto;">
+                                <div id="replay-grid-container-db" class="grid-container"></div>
+                                <svg id="final-route-svg-db"
+                                    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20;"></svg>
+                            </div>
+                        </section>
+                    </div>
+
+                    <!-- Dueling DQN Side -->
+                    <div class="compare-side" style="flex: 1; display: flex; flex-direction: column; gap: 2rem;">
+                        <h2 style="text-align: center; color: #f8fafc;">Dueling DQN</h2>
+
+                        <section class="info-panel card">
+                            <h3>方法特色與架構說明</h3>
+                            <div style="font-size: 0.9rem; color: #94a3b8; margin-top: 0.5rem; line-height: 1.6;">
+                                <p
+                                    style="margin-bottom: 0.5rem; background: var(--bg-color); padding: 0.5rem; border-radius: 4px;">
+                                    <strong>Formula:</strong>
+                                    <code>Q(s,a) = V(s) + (A(s,a) - <span style="font-size: 0.8em;">1/|A|</span>&sum;A(s,a'))</code>
+                                </p>
+                                <p style="margin-bottom: 0.5rem;"><strong>設計方式:</strong><br>
+                                    特徵擷取後分成 <b>Value Stream V(s)</b> 與 <b>Advantage Stream A(s,a)</b>，再合併為 Q。
+                                    讓模型在「動作不影響結果」的狀態下能單獨學狀態價值。</p>
+                                <p style="margin-bottom: 0.5rem;"><strong>網路架構:</strong><br>
+                                    Shared feature: Linear(64 → 150) → ReLU<br>
+                                    Advantage head: Linear(150 → 100) → ReLU → Linear(100 → 4)<br>
+                                    Value head:&nbsp;&nbsp;&nbsp;&nbsp;Linear(150 → 100) → ReLU → Linear(100 → 1)<br>
+                                    <b>Target rule</b>：vanilla（<code>max</code> over Target Network）— 隔離「架構」對結果的貢獻。</p>
+                                <p style="margin: 0 0 0.6rem;"><strong>離線訓練超參數:</strong>（與 Double DQN 共用，僅 <b>target rule</b> 與網路架構不同）</p>
+                                <table class="hparam-table">
+                                    <thead>
+                                        <tr><th>項目</th><th>設定</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr><td>Epochs</td><td><code>1500</code></td></tr>
+                                        <tr><td>Max moves / episode</td><td><code>50</code></td></tr>
+                                        <tr><td>Batch size</td><td><code>200</code></td></tr>
+                                        <tr><td>Replay buffer</td><td><code>deque(10,000)</code>，uniform sampling</td></tr>
+                                        <tr><td>Discount γ</td><td><code>0.9</code></td></tr>
+                                        <tr><td>Optimizer</td><td><code>Adam, lr=1e-3</code></td></tr>
+                                        <tr><td>LR scheduler</td><td><code>CosineAnnealingLR</code> (1e-3 → 1e-5)</td></tr>
+                                        <tr><td>ε-greedy</td><td><code>1.0 → 0.05</code>，前 70% epochs 線性衰減</td></tr>
+                                        <tr><td>Target network sync</td><td>每 <code>500</code> 環境步</td></tr>
+                                        <tr><td>Gradient clipping</td><td><code>clip_grad_norm_ ≤ 1.0</code></td></tr>
+                                        <tr><td>Loss</td><td>MSE</td></tr>
+                                        <tr><td><b>Target rule</b></td><td><b>Vanilla</b>：<code>y = r + γ·max<sub>a'</sub> Q<sub>target</sub>(s', a')</code></td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
+
+                        <section class="replay-panel card">
+                            <div class="panel-header">
+                                <h2>結果（Dueling）</h2>
+                                <span id="training-status-du" class="status success badge">Pre-trained Loaded</span>
+                            </div>
+                            <div style="position: relative; width: fit-content; margin: 0 auto;">
+                                <div id="replay-grid-container-du" class="grid-container"></div>
+                                <svg id="final-route-svg-du"
+                                    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20;"></svg>
+                            </div>
+                        </section>
+                    </div>
                 </div>
 
-                <!-- Dueling DQN Side -->
-                <div class="compare-side" style="flex: 1; display: flex; flex-direction: column; gap: 2rem;">
-                    <h2 style="text-align: center; color: #f8fafc;">Dueling DQN</h2>
-
-                    <section class="info-panel card">
-                        <h3>方法特色與架構說明</h3>
-                        <div style="font-size: 0.9rem; color: #94a3b8; margin-top: 0.5rem; line-height: 1.6;">
-                            <p
-                                style="margin-bottom: 0.5rem; background: var(--bg-color); padding: 0.5rem; border-radius: 4px;">
-                                <strong>Formula:</strong>
-                                <code>Q(s,a) = V(s) + (A(s,a) - <span style="font-size: 0.8em;">1/|A|</span>&sum;A(s,a'))</code>
-                            </p>
-                            <p style="margin-bottom: 0.5rem;"><strong>設計方式 (Design Method):</strong><br>
-                                Dueling DQN 改變了神經網路的內部架構，在特徵擷取後，將資料流分為兩支：一支計算狀態本身的價值 <b>V(s)</b> (State
-                                Value)，另一支計算各動作的相對優勢 <b>A(s,a)</b>
-                                (Advantage)，最後再合併。這讓模型在某些「動作不影響最終結果」的狀態下，能更專注且準確地學習狀態價值。</p>
-                            <p><strong>流程架構:</strong><br>
-                                狀態 <i>s</i> &rarr; 共用特徵擷取 (Shared Feature Extractor) &rarr; 分流至 <b>Value Stream</b> 與
-                                <b>Advantage Stream</b> &rarr; 合併輸出 <i>Q(s,a)</i>。</p>
-                        </div>
-                    </section>
-
-                    <section class="chart-panel card">
-                        <div class="panel-header">
-                            <h2>Training Loss</h2>
-                            <span id="training-status-du" class="status badge">Awaiting Training...</span>
-                        </div>
-                        <div class="chart-container">
-                            <canvas id="lossChartDu"></canvas>
-                        </div>
-                    </section>
-
-                    <section class="replay-panel card">
-                        <div class="panel-header">
-                            <h2>結果</h2>
-                        </div>
-                        <div style="position: relative; width: fit-content; margin: 0 auto;">
-                            <div id="replay-grid-container-du" class="grid-container"></div>
-                            <svg id="final-route-svg-du"
-                                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20;"></svg>
-                        </div>
-                    </section>
-                </div>
+                <!-- Hidden compatibility shims: lossChartDb / lossChartDu are referenced
+                     by legacy initChart() for non-compare modes. Keep them in DOM but hidden. -->
+                <canvas id="lossChartDb" style="display: none;"></canvas>
+                <canvas id="lossChartDu" style="display: none;"></canvas>
             </div>
         </main>
     </div>
