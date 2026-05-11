@@ -292,3 +292,9 @@ input[type="number"]:focus {
     cursor: not-allowed;
     opacity: 0.5;
 }
+
+
+/* 讓比較模式中的說明卡片自動延伸高度 */
+.compare-side .info-panel {
+    flex-grow: 1;
+}

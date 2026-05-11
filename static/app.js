@@ -466,7 +466,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const replayPanelWrapper = document.getElementById('replay-panel-wrapper');
         if (replayPanelWrapper) replayPanelWrapper.style.display = isLightning ? 'none' : 'block';
         const mainContent = document.querySelector('.main-content');
-        if (mainContent) mainContent.style.gridTemplateColumns = isLightning ? '1fr' : '1fr 1fr';
+        if (mainContent) {
+            mainContent.style.display = isLightning ? 'none' : 'grid';
+            mainContent.style.gridTemplateColumns = '1fr 1fr';
+        }
+        const lightningImagePanel = document.getElementById('lightning-image-panel');
+        if (lightningImagePanel) lightningImagePanel.style.display = isLightning ? 'block' : 'none';
 
         // Hide Start Training button and epochs in random mode
         const trainBtn_ = document.getElementById('train-btn');
@@ -641,19 +646,33 @@ document.addEventListener('DOMContentLoaded', () => {
     // Validation Grid Logic
     let draggedElement = null;
     function initValidationGrid(w, h) {
+        const maxObstacles = Math.min(w, h) - 1;
+
+        // Update max hint display
+        const maxDisplay = document.getElementById('max-obstacles-display');
+        if (maxDisplay) maxDisplay.innerText = maxObstacles;
+
+        // Read user inputs, default to 1/1
+        const numWallsInput = document.getElementById('num-walls');
+        const numPitsInput  = document.getElementById('num-pits');
+        let numWalls = numWallsInput ? Math.max(0, parseInt(numWallsInput.value) || 0) : 1;
+        let numPits  = numPitsInput  ? Math.max(0, parseInt(numPitsInput.value)  || 0) : 1;
+
+        // Clamp: walls first, then pits fill remaining budget
+        numWalls = Math.min(numWalls, maxObstacles);
+        numPits  = Math.min(numPits,  Math.max(0, maxObstacles - numWalls));
+
+        // Write clamped values back
+        if (numWallsInput) numWallsInput.value = numWalls;
+        if (numPitsInput)  numPitsInput.value  = numPits;
+
         const container = document.getElementById('validation-grid-container');
         if (!container) return;
-        
+
         container.innerHTML = '';
         container.style.gridTemplateColumns = `repeat(${w}, 60px)`;
         document.getElementById('validation-route-svg').innerHTML = '';
-        
-        const numObstacles = Math.min(w, h) - 1;
-        const numPits = Math.max(1, Math.floor(Math.random() * numObstacles));
-        let numWalls = numObstacles - numPits;
-        if (numWalls < 1 && numObstacles > 1) { numWalls = 1; }
-        else if (numObstacles <= 1) { numWalls = 1; } // fallback
-        
+
         let pieces = ['player', 'goal'];
         for(let i=0; i<numPits; i++) pieces.push('pit');
         for(let i=0; i<numWalls; i++) pieces.push('wall');
@@ -714,7 +733,43 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     }
-    
+
+    // Obstacle count inputs — re-render validation grid on change
+    const numWallsInput = document.getElementById('num-walls');
+    const numPitsInput  = document.getElementById('num-pits');
+
+    if (numWallsInput) {
+        numWallsInput.addEventListener('change', () => {
+            if (modeSelect.value !== 'lightning_random') return;
+            const w = parseInt(widthInput.value);
+            const h = parseInt(heightInput.value);
+            const maxObs = Math.min(w, h) - 1;
+            let nW = Math.max(0, parseInt(numWallsInput.value) || 0);
+            let nP = Math.max(0, parseInt(numPitsInput.value)  || 0);
+            nW = Math.min(nW, maxObs);
+            nP = Math.min(nP, maxObs - nW);
+            numWallsInput.value = nW;
+            numPitsInput.value  = nP;
+            initValidationGrid(w, h);
+        });
+    }
+
+    if (numPitsInput) {
+        numPitsInput.addEventListener('change', () => {
+            if (modeSelect.value !== 'lightning_random') return;
+            const w = parseInt(widthInput.value);
+            const h = parseInt(heightInput.value);
+            const maxObs = Math.min(w, h) - 1;
+            let nW = Math.max(0, parseInt(numWallsInput.value) || 0);
+            let nP = Math.max(0, parseInt(numPitsInput.value)  || 0);
+            nP = Math.min(nP, maxObs);
+            nW = Math.min(nW, maxObs - nP);
+            numWallsInput.value = nW;
+            numPitsInput.value  = nP;
+            initValidationGrid(w, h);
+        });
+    }
+
     const verifyBtn = document.getElementById('verify-btn');
     if (verifyBtn) {
         verifyBtn.addEventListener('click', async () => {

@@ -66,9 +66,8 @@
                 <section id="lightning-info-panel" class="info-panel card" style="display: none; margin-bottom: 2rem;">
                     <h3>Enhance DQN (PyTorch Lightning) 特色與架構說明</h3>
                     <div style="font-size: 0.9rem; color: #94a3b8; margin-top: 0.5rem; line-height: 1.6;">
-                        <p style="margin-bottom: 0.5rem;"><strong>封裝與重構 (Encapsulation):</strong><br>
-                            使用 PyTorch Lightning 將原本零散的訓練迴圈 (Training loop)、優化器 (Optimizer) 和損失計算封裝進 <code>LitDQN</code>
-                            模組中。這大幅提高了程式碼的可讀性與維護性，並且自動處理了很多硬體加速的底層邏輯。</p>
+                        <p style="margin-bottom: 0.5rem;"><strong>封裝與模組化 (Encapsulation & Modularity):</strong><br>
+                            訓練邏輯與 Web 介面完全解耦。<b>train_offline.py</b> 是一支可獨立執行的 Python 腳本，在終端機直接執行 <code>python train_offline.py</code> 即可完整訓練模型，無需啟動 Flask 伺服器。訓練完畢後模型權重儲存為 <code>trained_lightning.pth</code>；Flask 後端 (<b>app.py</b>) 僅在使用者點擊驗證時載入此檔案進行推論，實現了「訓練」與「部署驗證」的完全分離。PyTorch Lightning 將訓練迴圈、優化器更新、LR Scheduler 與硬體加速邏輯統一封裝於 <code>LitDQN_PER</code> 模組，大幅減少樣板程式碼 (Boilerplate)。</p>
                         <p style="margin-bottom: 0.5rem;"><strong>隨機模式 (Random Mode):</strong><br>
                             在每一局訓練開始時，環境中的起點 (P)、終點 (+)、陷阱 (-) 以及牆壁 (W)
                             皆會隨機生成。這迫使模型不能死背路線，而是必須學會「根據當前看到的畫面找出最佳策略」，大幅提升模型的泛化能力 (Generalization)。</p>
@@ -106,7 +105,7 @@
                         </div>
                     </section>
 
-                    <section class="chart-panel card">
+                    <section class="chart-panel card" id="chart-panel-section">
                         <div class="panel-header">
                             <h2>Training Loss</h2>
                             <div style="display: flex; gap: 1rem; align-items: center;">
@@ -120,6 +119,33 @@
                         </div>
                     </section>
                 </div>
+
+                <section id="lightning-image-panel" class="card" style="display: none; margin-top: 2rem;">
+                    <div class="panel-header">
+                        <h2>詳細參數與技術架構</h2>
+                    </div>
+                    <div style="display: flex; gap: 2rem; align-items: flex-start; flex-wrap: wrap;">
+                        <!-- <div style="flex: 1; min-width: 260px; font-size: 0.88rem; color: #94a3b8; line-height: 1.75;">
+                            <p style="margin: 0 0 0.75rem;"><strong style="color: #f8fafc;">神經網路架構</strong><br>
+                                4 層全連接：input → <code>256</code> → <code>256</code> → <code>128</code> → <code>4</code>（動作數）</p>
+                            <p style="margin: 0 0 0.75rem;"><strong style="color: #f8fafc;">Prioritized Experience Replay (PER)</strong><br>
+                                以 SumTree 實現 O(log N) 抽樣，優先度指數 α = 0.6，IS Weight β 從 0.4 線性退火至 1.0，防零項 ε = 1e-5</p>
+                            <p style="margin: 0 0 0.75rem;"><strong style="color: #f8fafc;">Epsilon 衰減</strong><br>
+                                指數衰減 ε × 0.99997 / step；起始 1.0，下限 0.05（約 10 萬步後進入近純利用階段）</p>
+                            <p style="margin: 0 0 0.75rem;"><strong style="color: #f8fafc;">Target Network 同步</strong><br>
+                                每 500 環境步同步一次（step-based），比 epoch-based 更精準穩定</p>
+                            <p style="margin: 0 0 0.75rem;"><strong style="color: #f8fafc;">Learning Rate Scheduler</strong><br>
+                                CosineAnnealingLR：5×10⁻⁴ → 1×10⁻⁵，T_max = 5000 epochs</p>
+                            <p style="margin: 0;"><strong style="color: #f8fafc;">訓練規模與緩衝區</strong><br>
+                                5000 epochs × 100 steps = 50 萬環境步；Buffer 容量 50,000，Batch Size 256；Gradient Clipping ≤ 1.0</p>
+                        </div> -->
+                        <div style="flex: 1; min-width: 260px;">
+                            <img src="{{ url_for('static', filename='image.png') }}"
+                                 style="width: 100%; height: auto; border-radius: 8px; display: block; border: 1px solid var(--border-color);"
+                                 alt="DQN Architecture Diagram">
+                        </div>
+                    </div>
+                </section>
 
                 <div class="bottom-content" style="margin-top: 2rem;">
                     <section class="replay-panel card" id="replay-panel-wrapper">
@@ -145,8 +171,23 @@
                     </div>
                     <div style="text-align: center; margin-bottom: 1.5rem;">
                         <p style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 1rem;">
-                            Drag and drop to rearrange the elements. 1 Player, 1 Goal, and random Traps/Walls.
+                            Drag and drop to rearrange the elements. 1 Player, 1 Goal, and adjustable Walls/Pits.
                         </p>
+                        <div style="display: flex; gap: 1.5rem; justify-content: center; align-items: flex-end; margin-bottom: 1.2rem; flex-wrap: wrap;">
+                            <div class="control-group" style="align-items: flex-start;">
+                                <label for="num-walls" style="font-size: 0.85rem; color: #94a3b8;">牆壁 (W) 數量:</label>
+                                <input type="number" id="num-walls" value="1" min="0"
+                                    style="width: 80px; padding: 0.4rem 0.6rem; font-size: 0.9rem;">
+                            </div>
+                            <div class="control-group" style="align-items: flex-start;">
+                                <label for="num-pits" style="font-size: 0.85rem; color: #94a3b8;">陷阱 (-) 數量:</label>
+                                <input type="number" id="num-pits" value="1" min="0"
+                                    style="width: 80px; padding: 0.4rem 0.6rem; font-size: 0.9rem;">
+                            </div>
+                            <small style="color: #64748b; font-size: 0.82rem; align-self: center; white-space: nowrap;">
+                                W + Pit 總數上限：<span id="max-obstacles-display">3</span>（= min(X,Y)−1）
+                            </small>
+                        </div>
                         <button id="verify-btn" class="primary-btn" disabled>🧠 Run Verification</button>
                     </div>
                     <div id="validation-grid-wrapper" style="position: relative; width: fit-content; margin: 0 auto;">
