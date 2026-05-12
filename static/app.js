@@ -487,6 +487,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (lightningInfoPanel) {
             lightningInfoPanel.style.display = isLightning ? 'block' : 'none';
         }
+        // basic-info-panel: show only in basic mode (HW3-1)
+        const basicInfoPanel = document.getElementById('basic-info-panel');
+        if (basicInfoPanel) {
+            const isBasic = !isLightning && !isCompare && !isRainbow;
+            basicInfoPanel.style.display = isBasic ? 'block' : 'none';
+        }
         const lightningControls = document.getElementById('lightning-controls');
         if (lightningControls) {
             lightningControls.style.display = 'none'; // no training config in random mode

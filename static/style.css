@@ -360,6 +360,56 @@ input[type="number"]:focus {
     line-height: 1.3;
 }
 
+/* Bonus / enhancement callout — used to mark items that exceed the starter spec */
+.bonus-callout {
+    margin-top: 1rem;
+    padding: 0.9rem 1rem;
+    border-left: 4px solid #f59e0b;
+    background: linear-gradient(90deg, rgba(245, 158, 11, 0.10), rgba(245, 158, 11, 0.02));
+    border-radius: 6px;
+    font-size: 0.88rem;
+    line-height: 1.6;
+    color: #fef3c7;
+}
+.bonus-callout .bonus-title {
+    color: #fcd34d;
+    font-weight: 600;
+    margin-bottom: 0.35rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+.bonus-callout ul {
+    margin: 0.3rem 0 0;
+    padding-left: 1.2rem;
+    color: #e2e8f0;
+}
+.bonus-callout li {
+    margin-bottom: 0.2rem;
+}
+.bonus-callout li code {
+    background: rgba(15, 23, 42, 0.6);
+    padding: 0.05rem 0.3rem;
+    border-radius: 3px;
+    color: #fcd34d;
+    font-size: 0.85em;
+}
+
+/* Inline ★ bonus badge — used inside hparam-table rows */
+.bonus-badge {
+    display: inline-block;
+    margin-left: 0.4rem;
+    padding: 0.05rem 0.4rem;
+    background: rgba(245, 158, 11, 0.18);
+    color: #fcd34d;
+    border: 1px solid rgba(245, 158, 11, 0.4);
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    vertical-align: middle;
+}
+
 /* 讓比較模式中的說明卡片自動延伸高度 */
 .compare-side .info-panel {
     flex-grow: 1;

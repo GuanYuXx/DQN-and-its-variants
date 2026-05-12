@@ -15,6 +15,21 @@ pinned: false
 
 ---
 
+## 0. 作業對照（HW3 Assignment Scope）
+
+本專案實作 HW3 全部四個子題，並在每題上加入額外穩定 / 強化技巧。下表彙整各題的**必要需求**與本實作的**加分項**：
+
+| 子題 | 配分 | 環境 | UI 模式 | 必要需求 | ★ 加分項（本實作額外加入） |
+|---|---|---|---|---|---|
+| **HW3-1** Naive DQN | 30% | `static` | Basic DQN (Original) | Basic DQN + Experience Replay Buffer | **Target Network**（程式 3.7/3.8 標準，每 500 步同步） |
+| **HW3-2** Enhanced Variants | 40% | `player` | Compare: Double vs Dueling | Double DQN + Dueling DQN，比較其改進 | Target Net 500 步同步、Cosine LR、Gradient Clipping、Replay 10,000、ε 下限 0.05 |
+| **HW3-3** Enhance + Training Tips | 30% | `random` | Enhance DQN (Lightning) | 將 PyTorch DQN 改寫為 Keras 或 **Lightning**；bonus：grad clip / LR scheduling | **PER (SumTree)**、**Double DQN target**、Cosine LR、Grad Clip、Target Net 500 步、Replay 20,000、Random mode 障礙物動態 1 ~ min(W,H)−1 |
+| **HW3-4** Rainbow（加分題） | bonus | `random` | ☆ Rainbow DQN ☆ | 用 Rainbow DQN 解 Random Mode GridWorld | 全題本身即加分；**CNN trunk**、**可變尺寸 4×4 ~ 7×7**、**4-stage curriculum**、**Goal/Pit/Wall/Player 全隨機 + BFS 可達性檢查**、NoisyNet head-only、推論 `disable_noise()` |
+
+> 詳細加分項說明也可在 Web UI 對應 mode 的 info panel 內看到（橙色「★ 相對 starter spec 的加分項」callout）。
+
+---
+
 ## 1. 開發環境（Development Environment）
 
 | 項目 | 版本 / 設定 |
@@ -70,6 +85,31 @@ Web UI 各 mode 對應的功能：
 
 ## 3. 模型與技術
 
+### 3.0 Naive DQN（Basic 模式 / HW3-1）
+
+對應檔案：`DQNModel` + `train_dqn_stream` in [`rl_models.py`](rl_models.py)
+
+- **環境**：4×4 `static` 模式 — Player (0,3) / Goal (0,0) / Pit (0,1) / Wall (1,1) 全部固定，與 DRL in Action Ch3 程式 3.7/3.8 一致。
+- **網路架構**：`Linear(64 → 150) → ReLU → Linear(150 → 100) → ReLU → Linear(100 → 4)`
+- **state 表示**：`render_np().reshape(1, 64) + np.random.rand(1, 64) / 100`
+- **核心訓練設定**：
+
+| 項目 | 設定 |
+|---|---|
+| Mode | `static` |
+| Loss | `MSE` |
+| Optimizer | `Adam, lr = 1e-3` |
+| Discount γ | `0.9` |
+| ε-greedy | `1.0 → 0.1` linear decay |
+| Replay buffer | `deque(1,000)`, `batch = 200` |
+| Max moves / episode | `50` |
+| **Target Network sync** | 每 `500` 學習步 hard-copy ★ Bonus |
+
+> **★ 加分項：Target Network**
+> HW3-1 規格僅要求 *Basic DQN + Experience Replay Buffer*。本實作額外加入 `target_model = copy.deepcopy(model)`，每 `sync_freq = 500` 學習步同步一次（程式 3.7/3.8 的標準作法），大幅穩定 Q-value 估計、減少 moving-target 振盪。
+
+Web UI 行為：選擇 *Basic DQN (Original)* 模式，可即時調 epochs（預設 500）並按 *Start Training* 直接在瀏覽器內訓練；訓練完成後可在 *Final Agent Animation Replay* 區看到該模型走完整局的動畫。
+
 ### 3.1 Double DQN（Compare 模式）
 
 對應檔案：`DQNModel` in [`rl_models.py`](rl_models.py)
@@ -81,6 +121,8 @@ Web UI 各 mode 對應的功能：
   y = r + γ · Q_target(s', argmax_a' Q_online(s', a'; θ); θ')
   ```
 - 由 `train_offline_compare.py` 訓練，權重存於 `trained_double.pth`。
+
+> **★ HW3-2 加分項**（相對 starter spec）：Target Network 每 `500` 環境步同步、**CosineAnnealingLR**（`1e-3 → 1e-5`）、**Gradient Clipping** (`clip_grad_norm_ ≤ 1.0`)、放大 replay buffer 至 `10,000`、ε 下限 `0.05`（starter 為 `0.1`）。
 
 ### 3.2 Dueling DQN（Compare 模式）
 
@@ -94,6 +136,8 @@ Web UI 各 mode 對應的功能：
 - **核心想法**：分離「狀態價值 V(s)」與「動作優勢 A(s,a)」，當所有動作對結果差異不大時仍能學習狀態價值。
 - **Target rule（Vanilla `max`）**：刻意採 vanilla target 來隔離「架構」對結果的貢獻（與 Double DQN 對比時公平）。
 - 由 `train_offline_compare.py` 訓練，權重存於 `trained_dueling.pth`。
+
+> **★ HW3-2 加分項**（相對 starter spec，與 Double 共用 pipeline）：**Dueling 架構本身**（V/A 分流）即為作業核心、Target Net 500 步同步、CosineAnnealingLR、Gradient Clipping、Replay 10,000、ε 下限 0.05；**Target rule 維持 vanilla**（不用 Double）以便與 Double 側做 apples-to-apples 對比。
 
 ### 3.3 Enhance DQN（Random 模式，PyTorch Lightning + PER）
 
@@ -112,6 +156,8 @@ Web UI 各 mode 對應的功能：
 | **Gradient Clipping** | `gradient_clip_val ≤ 1.0`，前端可即時調整 |
 | **訓練規模** | 5000 epochs × 100 env steps = **50 萬環境步**；Buffer 容量 50,000；Batch Size 256 |
 | **Lightning 封裝** | 訓練迴圈、Optimizer、Scheduler、硬體加速統一封裝於 `LitDQN_PER`，與 Web UI 完全解耦 |
+
+> **★ HW3-3 加分項**（相對 starter spec）：**Prioritized Experience Replay（SumTree）**、**Double DQN target rule**、**Target Network 每 500 步同步**（step-based）、**CosineAnnealingLR**（5e-4 → 1e-5）、**Gradient Clipping**（≤ 1.0，前端可調）、放大 Replay Buffer 至 **50,000**、Batch Size 256、ε 指數衰減至 **0.05**、**PyTorch Lightning 封裝**；環境端額外支援 **Random 模式動態障礙數**（1 ~ min(W,H)−1，starter 為固定 1 個 Pit）。
 
 ### 3.4 Rainbow DQN（Random Mode，六合一強化版）
 
@@ -179,6 +225,14 @@ Flatten → Linear(3136 → 512) → ReLU       (shared trunk)
 #### (f) 互動驗證
 
 UI 內可選 Width / Height（皆 4–7），拖移 Player / Goal / Pit / Wall 任意位置（重疊會觸發 `.shake` 動畫回到原位）。按下 *Run Verification* → 呼叫 `/api/verify_rainbow` → 後端載入 `trained_rainbow.pth`、`disable_noise()` 後做 deterministic greedy rollout。
+
+> **★ HW3-4 加分項**（整個 HW3-4 本身已是 Rainbow 加分作業，這裡再列出相對於「最小可行 Rainbow」的額外延伸）：
+> - **CNN trunk**（Conv 4→32→64 + FC 3136→512）取代 MLP，獲得空間平移不變性與跨尺寸參數共享
+> - **可變網格尺寸**：4×4 ~ 7×7 共 16 種矩形組合（含 4×6、7×5 等非正方形），透過 per-channel `pad_to_max()` 補 0 到 7×7
+> - **4 階段 Curriculum Learning**（9000 episodes，replay buffer 跨 stage 不清空 + 新舊回放比例控制）
+> - **Goal / Pit / Wall / Player 全隨機 + BFS 連通性檢查**，確保每個 reset 都有從 Player 到 Goal 的可達路徑
+> - **NoisyNet head-only**（前兩層 shared trunk 保留 deterministic Linear，僅 Value/Advantage head 用 `NoisyLinear`），推論時 `disable_noise()` 完全切換成 deterministic greedy
+> - **互動驗證 UI**：拖移擺位 + 即時 `.shake` 重疊驗證 + `/api/verify_rainbow` 一鍵 rollout
 
 ---
 

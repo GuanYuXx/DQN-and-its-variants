@@ -1,3 +1,4 @@
+import copy
 import math
 import numpy as np
 import torch
@@ -334,15 +335,22 @@ class DuelingDQNModel(torch.nn.Module):
         val = self.value(f)
         return val + adv - adv.mean(dim=1, keepdim=True)
 
-def train_dqn_stream(width=4, height=4, epochs=500, batch_size=200, mem_size=1000, max_moves=50, gamma=0.9, epsilon=1.0, epsilon_decay=True, custom_positions=None):
+def train_dqn_stream(width=4, height=4, epochs=500, batch_size=200, mem_size=1000, max_moves=50, gamma=0.9, epsilon=1.0, epsilon_decay=True, custom_positions=None, sync_freq=500):
     input_size = 4 * width * height
     model = DQNModel(input_size)
+    # Target Network (DRL in Action 程式 3.7/3.8): a frozen copy of the online
+    # network, used to compute bootstrap targets. Synced every `sync_freq`
+    # environment steps to stabilise training.
+    target_model = copy.deepcopy(model)
+    target_model.load_state_dict(model.state_dict())
+    target_model.eval()
     loss_fn = torch.nn.MSELoss()
     learning_rate = 1e-3
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    
+
     action_set = {0: 'u', 1: 'd', 2: 'l', 3: 'r'}
     replay = deque(maxlen=mem_size)
+    step_counter = 0
     
     interval = epochs // 5
     captured_routes = []
@@ -405,14 +413,15 @@ def train_dqn_stream(width=4, height=4, epochs=500, batch_size=200, mem_size=100
                 reward_batch = torch.Tensor([r for (s1,a,r,s2,d) in minibatch])
                 state2_batch = torch.cat([s2 for (s1,a,r,s2,d) in minibatch])
                 done_batch = torch.Tensor([d for (s1,a,r,s2,d) in minibatch])
-                
+
                 Q1 = model(state1_batch)
                 with torch.no_grad():
-                    Q2 = model(state2_batch)
-                
+                    # Bootstrap value from the target network (程式 3.8)
+                    Q2 = target_model(state2_batch)
+
                 Y = reward_batch + gamma * ((1 - done_batch) * torch.max(Q2, dim=1)[0])
                 X = Q1.gather(dim=1, index=action_batch.long().unsqueeze(dim=1)).squeeze()
-                
+
                 loss = loss_fn(X, Y.detach())
                 optimizer.zero_grad()
                 loss.backward()
@@ -420,7 +429,12 @@ def train_dqn_stream(width=4, height=4, epochs=500, batch_size=200, mem_size=100
                 all_losses.append(loss_val)
                 loss_count += 1
                 optimizer.step()
-                
+
+                # Sync target network every `sync_freq` learning steps (程式 3.8)
+                step_counter += 1
+                if step_counter % sync_freq == 0:
+                    target_model.load_state_dict(model.state_dict())
+
             if reward != -1 or mov > max_moves:
                 status = 0
                 player_pos = game.board.components['Player'].pos

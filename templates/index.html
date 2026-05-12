@@ -64,6 +64,41 @@
             </section>
 
             <div id="basic-mode-content">
+                <section id="basic-info-panel" class="info-panel card" style="margin-bottom: 2rem;">
+                    <h3>HW3-1: Naive DQN（static mode）— 方法與超參說明</h3>
+                    <div style="font-size: 0.9rem; color: #94a3b8; margin-top: 0.5rem; line-height: 1.6;">
+                        <p style="margin-bottom: 0.5rem;"><strong>環境：</strong>
+                            4&times;4 <code>static</code> 模式 — Player (0,3) / Goal (0,0) / Pit (0,1) / Wall (1,1) 全部固定，
+                            與 DRL in Action Ch3 程式 3.7/3.8 環境設定一致。</p>
+                        <p style="margin-bottom: 0.5rem;"><strong>網路架構：</strong>
+                            <code>Linear(64&rarr;150)&rarr;ReLU&rarr;Linear(150&rarr;100)&rarr;ReLU&rarr;Linear(100&rarr;4)</code>，
+                            輸入為 <code>render_np().reshape(1,64) + noise/100</code>。</p>
+                        <p style="margin: 0 0 0.6rem;"><strong>核心訓練設定：</strong></p>
+                        <table class="hparam-table">
+                            <thead><tr><th>項目</th><th>設定</th></tr></thead>
+                            <tbody>
+                                <tr><td>Mode</td><td><code>static</code></td></tr>
+                                <tr><td>Loss</td><td><code>MSE</code></td></tr>
+                                <tr><td>Optimizer</td><td><code>Adam, lr=1e-3</code></td></tr>
+                                <tr><td>Discount &gamma;</td><td><code>0.9</code></td></tr>
+                                <tr><td>&epsilon;-greedy</td><td><code>1.0 &rarr; 0.1</code> linear decay</td></tr>
+                                <tr><td>Replay buffer</td><td><code>deque(1,000)</code>，<code>batch=200</code></td></tr>
+                                <tr><td>Max moves / episode</td><td><code>50</code></td></tr>
+                                <tr><td>Target Network sync<span class="bonus-badge">&#9733; Bonus</span></td><td>每 <code>500</code> 學習步 hard-copy</td></tr>
+                            </tbody>
+                        </table>
+
+                        <div class="bonus-callout">
+                            <div class="bonus-title">&#9733; 相對 starter spec 的加分項</div>
+                            HW3-1 規格僅要求 <b>Basic DQN + Experience Replay Buffer</b>。本實作額外加入：
+                            <ul>
+                                <li><b>Target Network</b>（程式 3.7/3.8）— 用 <code>copy.deepcopy(model)</code> 凍結網路計算 bootstrap target，
+                                    每 <code>sync_freq=500</code> 學習步同步一次，大幅穩定 Q-value 估計、減少 moving-target 振盪。
+                                    對應 <code>rl_models.py</code> 中 <code>train_dqn_stream</code>。</li>
+                            </ul>
+                        </div>
+                    </div>
+                </section>
                 <section id="lightning-info-panel" class="info-panel card" style="display: none; margin-bottom: 2rem;">
                     <h3>Enhance DQN (PyTorch Lightning) 特色與架構說明</h3>
                     <div style="font-size: 0.9rem; color: #94a3b8; margin-top: 0.5rem; line-height: 1.6;">
@@ -75,8 +110,24 @@
                         <p><strong>訓練穩定技巧 (Training Tips):</strong><br>
                             1. <b>Gradient Clipping (梯度裁剪)</b>: 設定
                             <code>gradient_clip_val=1.0</code>，防止在面對隨機環境的意外狀況時，梯度過大導致神經網路權重崩潰。<br>
-                            2. <b>Learning Rate Scheduling (學習率排程)</b>: 使用 <code>ExponentialLR</code>
+                            2. <b>Learning Rate Scheduling (學習率排程)</b>: 使用 <code>CosineAnnealingLR</code>
                             讓學習率隨時間遞減，前期大步探索，後期穩定收斂。</p>
+
+                        <div class="bonus-callout">
+                            <div class="bonus-title">&#9733; 相對 starter spec 的加分項</div>
+                            HW3-3 規格的必要項只有「將 PyTorch DQN 轉成 Lightning（或 Keras）」，並 <b>bonus</b> 提到 gradient clipping / LR scheduling。本實作（<code>train_offline.py</code> + <code>LitDQN_PER</code>）額外加入：
+                            <ul>
+                                <li><b>Prioritized Experience Replay (PER)</b> — SumTree-based O(log N) 抽樣，&alpha;=0.6，IS weight &beta; 0.4&rarr;1.0 線性退火（不在 HW3-3 必要清單）</li>
+                                <li><b>Double DQN target rule</b> — <code>y = r + &gamma; &middot; Q<sub>target</sub>(s', argmax Q<sub>online</sub>(s'))</code>，減少高估偏差</li>
+                                <li><b>Target Network</b> — 每 <code>500</code> 環境步同步（step-based，比 epoch-based 更穩定）</li>
+                                <li><b>CosineAnnealingLR</b> — <code>1e-3 &rarr; 1e-5</code> over 5000 epochs（取代 ExponentialLR）</li>
+                                <li><b>Gradient clipping</b> — <code>clip_grad_norm_ &le; 1.0</code></li>
+                                <li><b>&epsilon; 下限 0.05</b>（starter 為 <code>0.1</code>）+ 指數衰減 <code>&times; 0.99997 / step</code></li>
+                                <li><b>放大 replay buffer 至 20,000</b>（starter 為 <code>1,000</code>）、batch <code>256</code>（starter 為 <code>200</code>）</li>
+                                <li><b>Random mode 環境擴充</b>：starter 永遠固定 1 Pit + 1 Wall；本實作 obstacle 數量隨機介於 1 &le; <code>num_pits</code> + <code>num_walls</code> &le; <code>min(W,H)&minus;1</code>，
+                                    讓模型暴露於更廣的障礙密度分佈、提升泛化能力</li>
+                            </ul>
+                        </div>
                     </div>
                 </section>
                 <div class="main-content">
@@ -270,6 +321,18 @@
                                         <tr><td><b>Target rule</b></td><td><b>Double</b>：<code>y = r + γ·Q<sub>target</sub>(s', argmax Q<sub>online</sub>(s'))</code></td></tr>
                                     </tbody>
                                 </table>
+
+                                <div class="bonus-callout">
+                                    <div class="bonus-title">&#9733; 相對 starter spec 的加分項</div>
+                                    HW3-2 規格僅要求實作並比較 <b>Double DQN</b> 與 <b>Dueling DQN</b>，本實作加入以下穩定 / 加速技巧：
+                                    <ul>
+                                        <li><b>Target Network</b>（程式 3.7/3.8 標準）— sync 每 <code>500</code> 環境步</li>
+                                        <li><b>CosineAnnealingLR</b> — lr 從 <code>1e-3</code> 退火到 <code>1e-5</code>，後期穩定收斂</li>
+                                        <li><b>Gradient Clipping</b> — <code>clip_grad_norm_ &le; 1.0</code> 防止梯度爆炸</li>
+                                        <li><b>放大 replay buffer</b>：<code>10,000</code>（starter 為 <code>1,000</code>）</li>
+                                        <li><b>&epsilon; 下限 0.05</b>（starter 為 <code>0.1</code>），保留更多 late-stage exploration</li>
+                                    </ul>
+                                </div>
                             </div>
                         </section>
 
@@ -326,6 +389,17 @@
                                         <tr><td><b>Target rule</b></td><td><b>Vanilla</b>：<code>y = r + γ·max<sub>a'</sub> Q<sub>target</sub>(s', a')</code></td></tr>
                                     </tbody>
                                 </table>
+
+                                <div class="bonus-callout">
+                                    <div class="bonus-title">&#9733; 相對 starter spec 的加分項</div>
+                                    與 Double DQN 共用相同的訓練 pipeline，加入以下與 starter 不同之處：
+                                    <ul>
+                                        <li><b>Dueling 架構本身</b>：將 trunk 後分流為 <b>V(s)</b> 與 <b>A(s,a)</b> head，再合併為 Q —— 讓「狀態價值」與「動作優勢」可獨立學習</li>
+                                        <li><b>Target Network</b>（程式 3.7/3.8）— sync 每 <code>500</code> 環境步</li>
+                                        <li><b>CosineAnnealingLR</b>、<b>Gradient Clipping</b>、<b>buffer 10,000</b>、<b>&epsilon; 下限 0.05</b>（與 Double 側一致）</li>
+                                        <li><b>Target rule 維持 vanilla</b>（非 Double）— 刻意隔離「<i>架構</i>」對結果的貢獻，方便與 Double 側做 apples-to-apples 對比</li>
+                                    </ul>
+                                </div>
                             </div>
                         </section>
 
@@ -420,6 +494,19 @@
                             <tr><td>Exploration</td><td><b>NoisyNet</b>（factorised Gaussian, head-only）</td></tr>
                         </tbody>
                     </table>
+
+                    <div class="bonus-callout">
+                        <div class="bonus-title">&#9733; 相對 starter spec 的加分項（整題為加分題）</div>
+                        HW3-4 加分題的需求僅為「使用 Rainbow DQN 解 Random Mode GridWorld」。本實作除了 Rainbow 六大 component 之外，還做了以下額外擴充：
+                        <ul>
+                            <li><b>CNN trunk</b>（<code>Conv 4&rarr;32&rarr;64</code> + <code>FC 3136&rarr;512</code>）取代 starter 的純 MLP — 利用 spatial locality 學習障礙物 / 目標的相對位置</li>
+                            <li><b>支援可變尺寸網格</b>：單一網路覆蓋 4&times;4 &sim; 7&times;7 共 <b>16 種 (X,Y) 組合</b>，輸入 zero-pad 到 7&times;7，CNN translation invariance 同時學到 (X,Y) &harr; (Y,X) 對稱性</li>
+                            <li><b>4-stage curriculum learning</b> — 按 max(X,Y) 由小到大漸進，並保留前一階段 replay 做 rehearsal，緩解 catastrophic forgetting</li>
+                            <li><b>Random mode 障礙物全隨機</b>：每 episode <b>Goal / Pit / Wall / Player 四件全隨機 + 不重疊</b>，並用 BFS 預檢確保可達（starter 為固定 Wall + Goal + Pit）</li>
+                            <li><b>NoisyNet head-only</b>：僅最後 4 個 Linear 換成 NoisyLinear，前段共享 trunk 維持普通 Linear — 降低參數量、訓練更穩</li>
+                            <li><b>互動驗證 UI</b>：可拖曳 Player / Goal / Pit / Wall 任意佈局，推論時 <code>disable_noise()</code> 確保 deterministic greedy 路徑</li>
+                        </ul>
+                    </div>
                 </section>
 
                 <section id="rainbow-validation-panel" class="card">
