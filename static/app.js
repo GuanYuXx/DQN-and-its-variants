@@ -517,11 +517,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (randomizeBtn)    randomizeBtn.style.display  = hideTrainUI ? 'none' : '';
         const epochsGroupCmp = document.getElementById('epochs-group');
         if (epochsGroupCmp)  epochsGroupCmp.style.display = hideTrainUI ? 'none' : '';
-        // Hide top width/height inputs in rainbow / compare mode
-        // (rainbow uses its own X/Y selects; compare is fixed 4×4 pre-trained)
+        // Hide top width/height inputs in rainbow / compare / lightning mode
+        // (rainbow uses its own X/Y selects; compare is fixed 4×4 pre-trained;
+        //  lightning is offline pre-trained so grid size is not configurable here)
         const widthGroup  = widthInput  ? widthInput.closest('.control-group')  : null;
         const heightGroup = heightInput ? heightInput.closest('.control-group') : null;
-        const hideGridSize = isRainbow || isCompare;
+        const hideGridSize = isRainbow || isCompare || isLightning;
         if (widthGroup)  widthGroup.style.display  = hideGridSize ? 'none' : '';
         if (heightGroup) heightGroup.style.display = hideGridSize ? 'none' : '';
         

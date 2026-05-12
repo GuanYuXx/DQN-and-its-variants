@@ -35,30 +35,6 @@
             <p>Training a Deep Q-Network on a dynamic Gridworld environment.</p>
         </header>
 
-        <!-- Hero cards: one click switches mode + scrolls to the corresponding section. -->
-        <section class="hero-cards">
-            <a class="hero-card" data-mode="basic" href="#section-hw3-1">
-                <div class="hero-card-tag">HW3-1 · 30%</div>
-                <div class="hero-card-title">Naive DQN</div>
-                <div class="hero-card-desc">Experience Replay + <b>Target Network</b><br><span class="hero-card-meta">static mode · MSE · ε 1.0→0.1</span></div>
-            </a>
-            <a class="hero-card" data-mode="compare" href="#section-hw3-2">
-                <div class="hero-card-tag">HW3-2 · 40%</div>
-                <div class="hero-card-title">Double <span style="opacity:.5">&amp;</span> Dueling</div>
-                <div class="hero-card-desc">兩種強化變體，<b>同場 rollout 比較</b><br><span class="hero-card-meta">player mode · 離線預訓練</span></div>
-            </a>
-            <a class="hero-card" data-mode="lightning_random" href="#section-hw3-3">
-                <div class="hero-card-tag">HW3-3 · 30%</div>
-                <div class="hero-card-title">Enhance + Lightning</div>
-                <div class="hero-card-desc">PER · Cosine LR · Grad Clip<br><span class="hero-card-meta">random mode · <code>LitDQN_PER</code></span></div>
-            </a>
-            <a class="hero-card hero-card-star" data-mode="rainbow_random" href="#section-hw3-4">
-                <div class="hero-card-tag">HW3-4 ★ Bonus</div>
-                <div class="hero-card-title">Rainbow DQN</div>
-                <div class="hero-card-desc">六合一：Double + Dueling + PER + N-step + Noisy + C51<br><span class="hero-card-meta">random · CNN · 4×4–7×7</span></div>
-            </a>
-        </section>
-
         <main>
             <section class="controls-panel card">
                 <h2>Configuration</h2>
@@ -99,8 +75,6 @@
                 </div>
                 <div class="control-actions"
                     style="display: flex; gap: 1rem; align-items: flex-end; margin-top: 1.2rem;">
-                    <button id="randomize-btn" class="secondary-btn" style="margin-top: 0;">🎲 Randomize
-                        Positions</button>
                     <button id="train-btn" class="primary-btn" style="margin-top: 0;">Start Training</button>
                 </div>
             </section>
@@ -311,6 +285,14 @@
                         </div>
                     </section>
                 </div>
+
+                <!-- Bottom action bar for HW3-1 / HW3-3: Randomize Positions -->
+                <section id="basic-action-panel" class="card" style="margin-top: 2rem;">
+                    <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                        <button id="randomize-btn" class="secondary-btn" style="margin-top: 0;">🎲 Randomize Positions</button>
+                        <span style="font-size: 0.85rem; color: #94a3b8;">在網格上重新隨機 Player / Goal / Pit / Wall 位置。</span>
+                    </div>
+                </section>
 
                 <div id="interactive-validation-panel" class="card" style="display: none; margin-top: 2rem;">
                     <div class="panel-header">
