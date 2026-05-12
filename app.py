@@ -1,7 +1,10 @@
 from flask import Flask, render_template, request, jsonify, Response
 from rl_models import train_dqn_stream, train_comparison_stream, train_lightning_stream
+import os
 import sys
 import traceback
+import numpy as np
+import torch
 
 app = Flask(__name__)
 
@@ -111,6 +114,91 @@ def verify_dueling():
 def compare_layout():
     """Return the fixed Goal/Pit/Wall layout the compare-mode models were trained against."""
     return jsonify({"layout": COMPARE_FIXED_LAYOUT})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Rainbow DQN inference (lazy-loaded; weights from train_offline_rainbow.py)
+# ─────────────────────────────────────────────────────────────────────────────
+RAINBOW_WEIGHTS_PATH = 'trained_rainbow.pth'
+_rainbow_net = None
+
+
+def _load_rainbow():
+    """Lazy-load the Rainbow network. Throws FileNotFoundError if not trained yet."""
+    global _rainbow_net
+    if _rainbow_net is None:
+        from rl_models import RainbowDQN
+        if not os.path.exists(RAINBOW_WEIGHTS_PATH):
+            raise FileNotFoundError(
+                f"{RAINBOW_WEIGHTS_PATH} not found — run `python train_offline_rainbow.py` first."
+            )
+        net = RainbowDQN()
+        state_dict = torch.load(RAINBOW_WEIGHTS_PATH, map_location='cpu', weights_only=True)
+        net.load_state_dict(state_dict)
+        net.eval()
+        net.disable_noise()  # deterministic inference (no NoisyNet sampling)
+        _rainbow_net = net
+    return _rainbow_net
+
+
+def verify_rainbow_model(width, height, positions):
+    """Roll out greedy policy from the user-chosen layout. Returns dict with 'route'."""
+    from rl_models import pad_to_max, RAINBOW_MAX_SIZE
+    from Gridworld import Gridworld
+
+    if not (4 <= width <= RAINBOW_MAX_SIZE and 4 <= height <= RAINBOW_MAX_SIZE):
+        raise ValueError(f"width/height must be in [4, {RAINBOW_MAX_SIZE}]; got {width}x{height}")
+
+    layout = {k: tuple(v) for k, v in positions.items()}
+    required = {'Player', 'Goal', 'Pit', 'Wall'}
+    missing = required - set(layout.keys())
+    if missing:
+        raise ValueError(f"missing positions: {missing}")
+
+    net = _load_rainbow()
+    game = Gridworld(width=width, height=height, mode='player', custom_positions=layout)
+
+    action_set = {0: 'u', 1: 'd', 2: 'l', 3: 'r'}
+    player_pos = game.board.components['Player'].pos
+    route = [{'pos': [int(player_pos[0]), int(player_pos[1])]}]
+
+    max_moves = 3 * (width + height)
+    for _ in range(max_moves):
+        frame = game.board.render_np().astype(np.float32)
+        s = pad_to_max(frame, RAINBOW_MAX_SIZE)
+        s_t = torch.from_numpy(s).unsqueeze(0)
+        with torch.no_grad():
+            q = net(s_t)
+            action = int(q.argmax(dim=1).item())
+
+        game.makeMove(action_set[action])
+        reward = game.reward()
+        player_pos = game.board.components['Player'].pos
+        route.append({
+            'pos': [int(player_pos[0]), int(player_pos[1])],
+            'reward': int(reward),
+        })
+        if abs(reward) >= 10:
+            break
+
+    return {'route': route}
+
+
+@app.route('/api/verify_rainbow', methods=['POST'])
+def verify_rainbow():
+    data = request.get_json() or {}
+    try:
+        width = int(data.get('width', 7))
+        height = int(data.get('height', 7))
+        positions = data.get('positions', {})
+        result = verify_rainbow_model(width, height, positions)
+        return jsonify({'status': 'success', **result})
+    except FileNotFoundError as e:
+        return jsonify({'status': 'error', 'message': str(e)})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)})
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=7860, debug=False)

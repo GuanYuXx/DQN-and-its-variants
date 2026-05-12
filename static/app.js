@@ -451,20 +451,37 @@ document.addEventListener('DOMContentLoaded', () => {
     modeSelect.addEventListener('change', (e) => {
         const isLightning = e.target.value === 'lightning_random';
         const isCompare   = e.target.value === 'compare';
+        const isRainbow   = e.target.value === 'rainbow_random';
+        const rainbowModeContent = document.getElementById('rainbow-mode-content');
         if (isCompare) {
             basicModeContent.style.display = 'none';
             compareModeContent.style.display = 'flex';
+            if (rainbowModeContent) rainbowModeContent.style.display = 'none';
             resetCompare();
+        } else if (isRainbow) {
+            basicModeContent.style.display = 'none';
+            compareModeContent.style.display = 'none';
+            if (rainbowModeContent) rainbowModeContent.style.display = 'flex';
+            const rw = parseInt(document.getElementById('rainbow-width').value);
+            const rh = parseInt(document.getElementById('rainbow-height').value);
+            if (typeof initRainbowValidationGrid === 'function') initRainbowValidationGrid(rw, rh);
         } else {
             basicModeContent.style.display = 'block';
             compareModeContent.style.display = 'none';
+            if (rainbowModeContent) rainbowModeContent.style.display = 'none';
             if (lossChart && !isLightning) lossChart.resize();
         }
-        // Hide Start Training / Randomize / epochs in compare mode (offline pre-trained)
-        if (trainBtn)        trainBtn.style.display      = isCompare ? 'none' : '';
-        if (randomizeBtn)    randomizeBtn.style.display  = isCompare ? 'none' : '';
+        // Hide Start Training / Randomize / epochs in compare/rainbow mode (offline pre-trained)
+        const hideTrainUI = isCompare || isRainbow;
+        if (trainBtn)        trainBtn.style.display      = hideTrainUI ? 'none' : '';
+        if (randomizeBtn)    randomizeBtn.style.display  = hideTrainUI ? 'none' : '';
         const epochsGroupCmp = document.getElementById('epochs-group');
-        if (epochsGroupCmp)  epochsGroupCmp.style.display = isCompare ? 'none' : '';
+        if (epochsGroupCmp)  epochsGroupCmp.style.display = hideTrainUI ? 'none' : '';
+        // Hide top width/height inputs in rainbow mode (rainbow uses its own X/Y selects)
+        const widthGroup  = widthInput  ? widthInput.closest('.control-group')  : null;
+        const heightGroup = heightInput ? heightInput.closest('.control-group') : null;
+        if (widthGroup)  widthGroup.style.display  = isRainbow ? 'none' : '';
+        if (heightGroup) heightGroup.style.display = isRainbow ? 'none' : '';
         
         const lightningInfoPanel = document.getElementById('lightning-info-panel');
         if (lightningInfoPanel) {
@@ -845,15 +862,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const maxDisplay = document.getElementById('max-obstacles-display');
         if (maxDisplay) maxDisplay.innerText = maxObstacles;
 
-        // Read user inputs, default to 1/1
+        // Read user inputs, default to 1/1; both W and Pit must be at least 1
         const numWallsInput = document.getElementById('num-walls');
         const numPitsInput  = document.getElementById('num-pits');
-        let numWalls = numWallsInput ? Math.max(0, parseInt(numWallsInput.value) || 0) : 1;
-        let numPits  = numPitsInput  ? Math.max(0, parseInt(numPitsInput.value)  || 0) : 1;
+        let numWalls = numWallsInput ? Math.max(1, parseInt(numWallsInput.value) || 1) : 1;
+        let numPits  = numPitsInput  ? Math.max(1, parseInt(numPitsInput.value)  || 1) : 1;
 
-        // Clamp: walls first, then pits fill remaining budget
-        numWalls = Math.min(numWalls, maxObstacles);
-        numPits  = Math.min(numPits,  Math.max(0, maxObstacles - numWalls));
+        // Clamp: walls in [1, maxObstacles-1] (reserve 1 for pit), then pits in [1, remaining]
+        numWalls = Math.min(numWalls, Math.max(1, maxObstacles - 1));
+        numPits  = Math.min(numPits,  Math.max(1, maxObstacles - numWalls));
 
         // Write clamped values back
         if (numWallsInput) numWallsInput.value = numWalls;
@@ -887,35 +904,49 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (piece === 'pit') cell.innerText = '-';
                     if (piece === 'wall') cell.innerText = 'W';
                     cell.draggable = true;
+                    cell.style.cursor = 'grab';
                 } else {
                     cell.draggable = false;
+                    cell.style.cursor = 'default';
                 }
-                
+
                 cell.addEventListener('dragstart', function(e) {
+                    if (!this.draggable) { e.preventDefault(); return; }
                     draggedElement = this;
                     e.dataTransfer.effectAllowed = 'move';
+                    this.style.cursor = 'grabbing';
+                    setTimeout(() => this.style.opacity = '0.5', 0);
                 });
-                
+
+                cell.addEventListener('dragend', function() {
+                    setTimeout(() => this.style.opacity = '1', 0);
+                    if (this.draggable) this.style.cursor = 'grab';
+                    draggedElement = null;
+                });
+
                 cell.addEventListener('dragover', function(e) {
                     e.preventDefault();
                     e.dataTransfer.dropEffect = 'move';
                 });
-                
+
                 cell.addEventListener('drop', function(e) {
                     e.preventDefault();
-                    if (this !== draggedElement) {
+                    if (draggedElement && this !== draggedElement) {
                         const tempClass = draggedElement.className;
                         const tempText = draggedElement.innerText;
                         const tempDraggable = draggedElement.draggable;
-                        
+                        const tempCursor = draggedElement.style.cursor;
+
                         draggedElement.className = this.className;
                         draggedElement.innerText = this.innerText;
                         draggedElement.draggable = this.draggable;
-                        
+                        draggedElement.style.cursor = this.style.cursor;
+
                         this.className = tempClass;
                         this.innerText = tempText;
                         this.draggable = tempDraggable;
-                        
+                        this.style.cursor = tempCursor;
+
                         document.getElementById('validation-route-svg').innerHTML = '';
                         document.getElementById('validation-status').innerText = 'Ready to Verify';
                         document.getElementById('validation-status').className = 'status badge';
@@ -937,10 +968,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const w = parseInt(widthInput.value);
             const h = parseInt(heightInput.value);
             const maxObs = Math.min(w, h) - 1;
-            let nW = Math.max(0, parseInt(numWallsInput.value) || 0);
-            let nP = Math.max(0, parseInt(numPitsInput.value)  || 0);
-            nW = Math.min(nW, maxObs);
-            nP = Math.min(nP, maxObs - nW);
+            let nW = Math.max(1, parseInt(numWallsInput.value) || 1);
+            let nP = Math.max(1, parseInt(numPitsInput.value)  || 1);
+            nW = Math.min(nW, Math.max(1, maxObs - 1));
+            nP = Math.min(nP, Math.max(1, maxObs - nW));
             numWallsInput.value = nW;
             numPitsInput.value  = nP;
             initValidationGrid(w, h);
@@ -953,10 +984,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const w = parseInt(widthInput.value);
             const h = parseInt(heightInput.value);
             const maxObs = Math.min(w, h) - 1;
-            let nW = Math.max(0, parseInt(numWallsInput.value) || 0);
-            let nP = Math.max(0, parseInt(numPitsInput.value)  || 0);
-            nP = Math.min(nP, maxObs);
-            nW = Math.min(nW, maxObs - nP);
+            let nW = Math.max(1, parseInt(numWallsInput.value) || 1);
+            let nP = Math.max(1, parseInt(numPitsInput.value)  || 1);
+            nP = Math.min(nP, Math.max(1, maxObs - 1));
+            nW = Math.min(nW, Math.max(1, maxObs - nP));
             numWallsInput.value = nW;
             numPitsInput.value  = nP;
             initValidationGrid(w, h);
@@ -1013,6 +1044,205 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error(err);
             } finally {
                 verifyBtn.disabled = false;
+            }
+        });
+    }
+
+    // ── Rainbow Validation Grid ─────────────────────────────────────────────
+    // 4 fixed pieces (Player / Goal / Pit / Wall), all draggable, no overlap.
+    // Drop onto an occupied cell -> revert + .shake animation as feedback.
+    let rainbowDragged = null;
+
+    function _rainbowShake(cell) {
+        if (!cell) return;
+        cell.classList.remove('shake');
+        // force reflow so re-adding the class restarts the animation
+        void cell.offsetWidth;
+        cell.classList.add('shake');
+        setTimeout(() => cell.classList.remove('shake'), 450);
+    }
+
+    function _rainbowSetupCell(cell) {
+        cell.addEventListener('dragstart', function(e) {
+            if (!this.draggable) { e.preventDefault(); return; }
+            rainbowDragged = this;
+            e.dataTransfer.effectAllowed = 'move';
+            this.style.cursor = 'grabbing';
+            setTimeout(() => this.style.opacity = '0.5', 0);
+        });
+        cell.addEventListener('dragend', function() {
+            setTimeout(() => this.style.opacity = '1', 0);
+            if (this.draggable) this.style.cursor = 'grab';
+            rainbowDragged = null;
+        });
+        cell.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+        });
+        cell.addEventListener('drop', function(e) {
+            e.preventDefault();
+            if (!rainbowDragged || this === rainbowDragged) return;
+
+            // Overlap guard: target must be a blank cell (no piece classes).
+            const occupied = ['player', 'goal', 'pit', 'wall'].some(c => this.classList.contains(c));
+            if (occupied) {
+                _rainbowShake(rainbowDragged);
+                return;
+            }
+
+            // Move: copy piece classes/text from source to target, blank the source.
+            const cls = rainbowDragged.className;
+            const txt = rainbowDragged.innerText;
+            this.className = cls;
+            this.innerText = txt;
+            this.draggable = true;
+            this.style.cursor = 'grab';
+
+            rainbowDragged.className = 'cell';
+            rainbowDragged.innerText = '';
+            rainbowDragged.draggable = false;
+            rainbowDragged.style.cursor = 'default';
+
+            const svg = document.getElementById('rainbow-route-svg');
+            if (svg) svg.innerHTML = '';
+            const status = document.getElementById('rainbow-validation-status');
+            if (status) {
+                status.innerText = 'Ready to Verify';
+                status.className = 'status badge';
+            }
+        });
+    }
+
+    function initRainbowValidationGrid(w, h) {
+        const container = document.getElementById('rainbow-validation-grid');
+        if (!container) return;
+        container.innerHTML = '';
+        container.style.gridTemplateColumns = `repeat(${w}, 60px)`;
+        const svg = document.getElementById('rainbow-route-svg');
+        if (svg) svg.innerHTML = '';
+
+        // Random non-overlapping positions for the 4 pieces.
+        const idx = [];
+        for (let i = 0; i < w * h; i++) idx.push(i);
+        idx.sort(() => Math.random() - 0.5);
+        const [pIdx, gIdx, pitIdx, wIdx] = idx.slice(0, 4);
+        const pieceAt = {};
+        pieceAt[pIdx]   = { cls: 'player', txt: 'P' };
+        pieceAt[gIdx]   = { cls: 'goal',   txt: '+' };
+        pieceAt[pitIdx] = { cls: 'pit',    txt: '-' };
+        pieceAt[wIdx]   = { cls: 'wall',   txt: 'W' };
+
+        for (let r = 0; r < h; r++) {
+            for (let c = 0; c < w; c++) {
+                const flat = r * w + c;
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                cell.id = `rainbow-cell-${r}-${c}`;
+                const piece = pieceAt[flat];
+                if (piece) {
+                    cell.classList.add(piece.cls);
+                    cell.innerText = piece.txt;
+                    cell.draggable = true;
+                    cell.style.cursor = 'grab';
+                } else {
+                    cell.draggable = false;
+                    cell.style.cursor = 'default';
+                }
+                _rainbowSetupCell(cell);
+                container.appendChild(cell);
+            }
+        }
+
+        const status = document.getElementById('rainbow-validation-status');
+        if (status) {
+            status.innerText = 'Awaiting Verification...';
+            status.className = 'status badge';
+        }
+    }
+    window.initRainbowValidationGrid = initRainbowValidationGrid;
+
+    const rainbowWidthSel  = document.getElementById('rainbow-width');
+    const rainbowHeightSel = document.getElementById('rainbow-height');
+    function _rainbowSizeChange() {
+        if (modeSelect.value !== 'rainbow_random') return;
+        const w = parseInt(rainbowWidthSel.value);
+        const h = parseInt(rainbowHeightSel.value);
+        initRainbowValidationGrid(w, h);
+    }
+    if (rainbowWidthSel)  rainbowWidthSel.addEventListener('change', _rainbowSizeChange);
+    if (rainbowHeightSel) rainbowHeightSel.addEventListener('change', _rainbowSizeChange);
+
+    const rainbowShuffleBtn = document.getElementById('rainbow-shuffle-btn');
+    if (rainbowShuffleBtn) {
+        rainbowShuffleBtn.addEventListener('click', () => {
+            if (modeSelect.value !== 'rainbow_random') return;
+            const w = parseInt(rainbowWidthSel.value);
+            const h = parseInt(rainbowHeightSel.value);
+            initRainbowValidationGrid(w, h);
+        });
+    }
+
+    const rainbowVerifyBtn = document.getElementById('rainbow-verify-btn');
+    if (rainbowVerifyBtn) {
+        rainbowVerifyBtn.addEventListener('click', async () => {
+            const w = parseInt(rainbowWidthSel.value);
+            const h = parseInt(rainbowHeightSel.value);
+            const positions = {};
+            for (let r = 0; r < h; r++) {
+                for (let c = 0; c < w; c++) {
+                    const cell = document.getElementById(`rainbow-cell-${r}-${c}`);
+                    if (!cell) continue;
+                    if (cell.classList.contains('player')) positions['Player'] = [r, c];
+                    if (cell.classList.contains('goal'))   positions['Goal']   = [r, c];
+                    if (cell.classList.contains('pit'))    positions['Pit']    = [r, c];
+                    if (cell.classList.contains('wall'))   positions['Wall']   = [r, c];
+                }
+            }
+            const required = ['Player', 'Goal', 'Pit', 'Wall'];
+            const missing = required.filter(k => !positions[k]);
+            const status = document.getElementById('rainbow-validation-status');
+            if (missing.length) {
+                if (status) {
+                    status.innerText = `Missing: ${missing.join(', ')}`;
+                    status.className = 'status badge';
+                }
+                return;
+            }
+            if (status) {
+                status.innerText = 'Verifying...';
+                status.className = 'status running badge';
+            }
+            rainbowVerifyBtn.disabled = true;
+            try {
+                const response = await fetch('/api/verify_rainbow', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ width: w, height: h, positions: positions })
+                });
+                const data = await response.json();
+                const svg = document.getElementById('rainbow-route-svg');
+                if (data.status === 'success') {
+                    drawStaticRoute(data.route, svg, '#a78bfa');
+                    if (status) {
+                        status.innerText = 'Verification Complete';
+                        status.className = 'status success badge';
+                    }
+                } else {
+                    if (status) {
+                        status.innerText = 'Error';
+                        status.className = 'status badge';
+                    }
+                    console.error(data.message);
+                    alert(`Rainbow verify failed:\n${data.message}`);
+                }
+            } catch (err) {
+                console.error(err);
+                if (status) {
+                    status.innerText = 'Network Error';
+                    status.className = 'status badge';
+                }
+            } finally {
+                rainbowVerifyBtn.disabled = false;
             }
         });
     }

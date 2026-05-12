@@ -1,5 +1,7 @@
+import math
 import numpy as np
 import torch
+import torch.nn.functional as F
 import random
 import json
 import threading
@@ -8,6 +10,293 @@ import pytorch_lightning as pl
 from collections import deque
 from torch.utils.data import DataLoader, Dataset
 from Gridworld import Gridworld
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Rainbow DQN — shared helper (used by both training and inference)
+# ─────────────────────────────────────────────────────────────────────────────
+RAINBOW_MAX_SIZE = 7
+RAINBOW_N_ATOMS = 51
+RAINBOW_V_MIN = -10.0   # narrowed from -20 — matches actual n-step return range
+RAINBOW_V_MAX = 10.0
+
+
+def pad_to_max(frame_3d, max_size=RAINBOW_MAX_SIZE):
+    """frame_3d: (4, H, W) uint8/float -> returns (4, max_size, max_size) float32.
+
+    Pads each of the 4 channels (Player/Goal/Pit/Wall) with zeros at the
+    bottom-right so every sample has identical input dimensions regardless
+    of the original gridworld size. Output stays 3D so the CNN trunk can
+    consume it directly (no flatten — Conv2d needs spatial structure)."""
+    assert frame_3d.shape[0] == 4, (
+        f"expected 4 channels (Player/Goal/Pit/Wall), got {frame_3d.shape[0]}"
+    )
+    C, H, W = frame_3d.shape
+    assert H <= max_size and W <= max_size, f"frame {H}x{W} exceeds max {max_size}"
+    out = np.zeros((C, max_size, max_size), dtype=np.float32)
+    out[:, :H, :W] = frame_3d
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NoisyLinear — factorised Gaussian noise (Rainbow / Fortunato et al. 2017)
+# ─────────────────────────────────────────────────────────────────────────────
+class NoisyLinear(torch.nn.Module):
+    """Linear layer whose weights have learnable Gaussian noise.
+
+    During training (or whenever ``noisy=True``), each forward pass samples
+    new factorised noise (ε_w = f(ε_in) ⊗ f(ε_out), ε_b = f(ε_out)).
+    During inference (``noisy=False``), only the deterministic μ parameters
+    are used so the policy is reproducible for a given layout."""
+
+    def __init__(self, in_features, out_features, sigma_init=0.5):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.sigma_init = sigma_init
+        self.noisy = True  # toggle via enable_noise() / disable_noise()
+
+        # μ and σ parameters
+        self.weight_mu = torch.nn.Parameter(torch.empty(out_features, in_features))
+        self.weight_sigma = torch.nn.Parameter(torch.empty(out_features, in_features))
+        self.bias_mu = torch.nn.Parameter(torch.empty(out_features))
+        self.bias_sigma = torch.nn.Parameter(torch.empty(out_features))
+
+        # Noise buffers (not learned, but moved with .to(device))
+        self.register_buffer('weight_epsilon', torch.empty(out_features, in_features))
+        self.register_buffer('bias_epsilon', torch.empty(out_features))
+
+        self.reset_parameters()
+        self.reset_noise()
+
+    def reset_parameters(self):
+        mu_range = 1.0 / math.sqrt(self.in_features)
+        self.weight_mu.data.uniform_(-mu_range, mu_range)
+        self.bias_mu.data.uniform_(-mu_range, mu_range)
+        # σ initialised to σ₀ / √fan_in (Rainbow paper)
+        self.weight_sigma.data.fill_(self.sigma_init / math.sqrt(self.in_features))
+        self.bias_sigma.data.fill_(self.sigma_init / math.sqrt(self.out_features))
+
+    @staticmethod
+    def _scale_noise(size, device=None):
+        x = torch.randn(size, device=device)
+        return x.sign().mul_(x.abs().sqrt_())
+
+    def reset_noise(self):
+        device = self.weight_epsilon.device
+        eps_in = self._scale_noise(self.in_features, device=device)
+        eps_out = self._scale_noise(self.out_features, device=device)
+        # factorised noise: outer product (avoid deprecated .ger())
+        self.weight_epsilon.copy_(torch.outer(eps_out, eps_in))
+        self.bias_epsilon.copy_(eps_out)
+
+    def forward(self, x):
+        if self.noisy:
+            # resample every forward (cheap, ≈ Rainbow paper)
+            self.reset_noise()
+            w = self.weight_mu + self.weight_sigma * self.weight_epsilon
+            b = self.bias_mu + self.bias_sigma * self.bias_epsilon
+        else:
+            w = self.weight_mu
+            b = self.bias_mu
+        return F.linear(x, w, b)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RainbowDQN — Dueling + C51 + NoisyNet (Double + n-step + PER applied in loss)
+# ─────────────────────────────────────────────────────────────────────────────
+class RainbowDQN(torch.nn.Module):
+    """Rainbow DQN body for a (B, 4, 7, 7) grid input.
+
+    Architecture (CNN trunk + head-only NoisyLinear):
+        Conv2d(4 -> 32, 3x3, pad=1)   -> ReLU       # spatial = 7x7
+        Conv2d(32 -> 64, 3x3, pad=1)  -> ReLU       # spatial = 7x7
+        Flatten                                     # 64*7*7 = 3136
+        Linear(3136 -> 512)            -> ReLU       # shared trunk
+           ↓ split into value / advantage branches
+        value:     NoisyLinear(512, 256) -> ReLU -> NoisyLinear(256, N_atoms)
+        advantage: NoisyLinear(512, 256) -> ReLU -> NoisyLinear(256, 4·N_atoms)
+           ↓ Q_logits = V + (A - A.mean(dim=action))
+           ↓ softmax along atom axis -> Q_dist (B, 4, N_atoms)
+           ↓ Σ z_i · p_i               -> Q(s, a)  (B, 4)
+
+    Why CNN: flat MLP can't see spatial locality, so a Goal-1-cell-up looks
+    nothing like a Goal-2-cells-up in feature space. CNN gives translation
+    invariance + parameter sharing — critical for generalising across (X,Y)
+    and for the (X,Y) ↔ (Y,X) symmetry.
+
+    Inputs:
+        forward(s)       — s shape (B, 4, 7, 7); a flat (B, 196) is also accepted
+                          and auto-reshaped for backward compat.
+    Methods:
+        forward(s)       -> Q(s, a)  shape (B, 4)
+        forward_dist(s)  -> log p(z | s, a) shape (B, 4, N_atoms)  (training)
+        disable_noise()  -> deterministic μ-only forward (inference)
+        enable_noise()   -> stochastic factorised-Gaussian forward (train)
+        reset_noise()    -> manually resample all noise (rarely needed)
+    """
+
+    def __init__(self, n_actions=4, n_atoms=RAINBOW_N_ATOMS,
+                 v_min=RAINBOW_V_MIN, v_max=RAINBOW_V_MAX,
+                 max_size=RAINBOW_MAX_SIZE,
+                 conv_channels=(32, 64), hidden=512,
+                 head_hidden=256, sigma_init=0.5):
+        super().__init__()
+        self.n_actions = n_actions
+        self.n_atoms = n_atoms
+        self.v_min = v_min
+        self.v_max = v_max
+        self.max_size = max_size
+
+        # Atom support z_i ∈ [v_min, v_max]
+        self.register_buffer('support',
+                             torch.linspace(v_min, v_max, n_atoms))
+        self.delta_z = (v_max - v_min) / (n_atoms - 1)
+
+        # CNN trunk — preserves spatial structure, gives translation invariance
+        c1, c2 = conv_channels
+        self.conv = torch.nn.Sequential(
+            torch.nn.Conv2d(4, c1, kernel_size=3, padding=1),
+            torch.nn.ReLU(),
+            torch.nn.Conv2d(c1, c2, kernel_size=3, padding=1),
+            torch.nn.ReLU(),
+        )
+        conv_out_size = c2 * max_size * max_size  # = 64 * 49 = 3136
+
+        # Shared FC after conv
+        self.fc = torch.nn.Sequential(
+            torch.nn.Linear(conv_out_size, hidden),
+            torch.nn.ReLU(),
+        )
+
+        # Value branch (NoisyLinear head)
+        self.value_hidden = NoisyLinear(hidden, head_hidden, sigma_init)
+        self.value_out = NoisyLinear(head_hidden, n_atoms, sigma_init)
+
+        # Advantage branch (NoisyLinear head)
+        self.adv_hidden = NoisyLinear(hidden, head_hidden, sigma_init)
+        self.adv_out = NoisyLinear(head_hidden, n_actions * n_atoms, sigma_init)
+
+    # ── noise control ───────────────────────────────────────────────────────
+    def _noisy_layers(self):
+        return (self.value_hidden, self.value_out,
+                self.adv_hidden, self.adv_out)
+
+    def enable_noise(self):
+        for m in self._noisy_layers():
+            m.noisy = True
+
+    def disable_noise(self):
+        for m in self._noisy_layers():
+            m.noisy = False
+
+    def reset_noise(self):
+        for m in self._noisy_layers():
+            m.reset_noise()
+
+    # ── forward (distributional) ────────────────────────────────────────────
+    def _logits(self, x):
+        """Returns Q_logits with shape (B, n_actions, n_atoms) BEFORE softmax.
+
+        Accepts (B, 4, 7, 7) or flat (B, 196) — auto-reshapes the latter."""
+        if x.dim() == 2:
+            x = x.view(-1, 4, self.max_size, self.max_size)
+        f = self.conv(x)
+        f = f.flatten(start_dim=1)
+        f = self.fc(f)
+
+        v = F.relu(self.value_hidden(f))
+        v_logits = self.value_out(v)                              # (B, n_atoms)
+        v_logits = v_logits.view(-1, 1, self.n_atoms)
+
+        a = F.relu(self.adv_hidden(f))
+        a_logits = self.adv_out(a)                                # (B, A·n_atoms)
+        a_logits = a_logits.view(-1, self.n_actions, self.n_atoms)
+
+        # Dueling combine (per-atom): subtract the mean over actions
+        q_logits = v_logits + a_logits - a_logits.mean(dim=1, keepdim=True)
+        return q_logits  # (B, n_actions, n_atoms)
+
+    def forward_dist(self, x):
+        """Returns Q distribution log-probabilities, shape (B, n_actions, n_atoms).
+
+        Used during training: gather along action then compute cross-entropy."""
+        q_logits = self._logits(x)
+        return F.log_softmax(q_logits, dim=-1)
+
+    def forward_probs(self, x):
+        """Probability distribution p(z | s, a), shape (B, n_actions, n_atoms)."""
+        return F.softmax(self._logits(x), dim=-1)
+
+    def forward(self, x):
+        """Q-value Q(s, a) = Σ_i z_i · p_i. Shape (B, n_actions)."""
+        probs = self.forward_probs(x)
+        # support shape (n_atoms,) -> broadcast to (1, 1, n_atoms)
+        q = (probs * self.support.view(1, 1, -1)).sum(dim=-1)
+        return q
+
+
+# Smoke test — run `python rl_models.py` to verify Rainbow shapes & no-noise toggle
+def _rainbow_smoke_test():
+    print("─" * 60)
+    print("Rainbow DQN smoke test")
+    print("─" * 60)
+
+    # pad_to_max: (4, 4, 5) frame -> (4, 7, 7) padded
+    frame = np.zeros((4, 4, 5), dtype=np.float32)
+    frame[0, 0, 0] = 1   # player
+    frame[1, 3, 4] = 1   # goal at row 3, col 4 in a 4x5 grid
+    padded = pad_to_max(frame, RAINBOW_MAX_SIZE)
+    print(f"pad_to_max  (4,4,5) -> {padded.shape}  (expected (4, 7, 7))")
+    assert padded.shape == (4, 7, 7)
+    assert padded[1, 3, 4] == 1.0, "goal not at expected position in padded frame"
+    assert padded[0, 0, 0] == 1.0, "player not at expected position in padded frame"
+    # padding region should be all zeros (e.g. col 5,6 and row 4,5,6)
+    assert padded[:, :, 5:].sum() == 0, "right padding should be zero"
+    assert padded[:, 4:, :].sum() == 0, "bottom padding should be zero"
+
+    # RainbowDQN forward — accept 3D input directly
+    net = RainbowDQN()
+    print(f"#parameters: {sum(p.numel() for p in net.parameters()):,}")
+    x_3d = torch.from_numpy(padded).unsqueeze(0).repeat(3, 1, 1, 1)  # (3, 4, 7, 7)
+    q = net(x_3d)
+    log_p = net.forward_dist(x_3d)
+    print(f"forward (3D)  -> {tuple(q.shape)}   (expected (3, 4))")
+    print(f"forward_dist  -> {tuple(log_p.shape)}  (expected (3, 4, 51))")
+    assert q.shape == (3, 4)
+    assert log_p.shape == (3, 4, 51)
+
+    # Also accept flat (B, 196) for backward compat
+    x_flat = x_3d.flatten(start_dim=1)
+    q_flat = net(x_flat)
+    print(f"forward (flat) -> {tuple(q_flat.shape)}  (expected (3, 4))")
+    assert q_flat.shape == (3, 4)
+
+    # Noise toggle: deterministic forward should give identical output twice
+    net.disable_noise()
+    q1 = net(x_3d)
+    q2 = net(x_3d)
+    assert torch.allclose(q1, q2), "disable_noise() should produce deterministic output"
+    print("disable_noise: two forwards are identical")
+
+    net.enable_noise()
+    q3 = net(x_3d)
+    q4 = net(x_3d)
+    assert not torch.allclose(q3, q4), "enable_noise() should produce stochastic output"
+    print("enable_noise:  two forwards differ (good)")
+
+    # Atom support range
+    assert net.support[0].item() == RAINBOW_V_MIN
+    assert net.support[-1].item() == RAINBOW_V_MAX
+    print(f"support range [{net.support[0].item()}, {net.support[-1].item()}], Δz={net.delta_z:.3f}")
+
+    print("─" * 60)
+    print("Rainbow smoke test passed.")
+    print("─" * 60)
+
+
+if __name__ == '__main__':
+    _rainbow_smoke_test()
 
 class DQNModel(torch.nn.Module):
     def __init__(self, input_size, l1=150, l2=100, l3=4):

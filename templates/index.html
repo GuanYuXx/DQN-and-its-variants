@@ -38,6 +38,7 @@
                         <option value="basic">Basic DQN (Original)</option>
                         <option value="compare">Compare: Double vs Dueling</option>
                         <option value="lightning_random">Enhance DQN (Random Mode - Lightning)</option>
+                        <option value="rainbow_random">&#9733; Rainbow DQN - Random Mode &#9733;</option>
                     </select>
                 </div>
                 <div id="lightning-controls" class="control-group"
@@ -176,16 +177,16 @@
                         <div style="display: flex; gap: 1.5rem; justify-content: center; align-items: flex-end; margin-bottom: 1.2rem; flex-wrap: wrap;">
                             <div class="control-group" style="align-items: flex-start;">
                                 <label for="num-walls" style="font-size: 0.85rem; color: #94a3b8;">牆壁 (W) 數量:</label>
-                                <input type="number" id="num-walls" value="1" min="0"
+                                <input type="number" id="num-walls" value="1" min="1"
                                     style="width: 80px; padding: 0.4rem 0.6rem; font-size: 0.9rem;">
                             </div>
                             <div class="control-group" style="align-items: flex-start;">
                                 <label for="num-pits" style="font-size: 0.85rem; color: #94a3b8;">陷阱 (-) 數量:</label>
-                                <input type="number" id="num-pits" value="1" min="0"
+                                <input type="number" id="num-pits" value="1" min="1"
                                     style="width: 80px; padding: 0.4rem 0.6rem; font-size: 0.9rem;">
                             </div>
                             <small style="color: #64748b; font-size: 0.82rem; align-self: center; white-space: nowrap;">
-                                W + Pit 總數上限：<span id="max-obstacles-display">3</span>（= min(X,Y)−1）
+                                W、Pit 各至少 1 個；總數上限：<span id="max-obstacles-display">3</span>（= min(X,Y)−1）
                             </small>
                         </div>
                         <button id="verify-btn" class="primary-btn" disabled>🧠 Run Verification</button>
@@ -346,6 +347,128 @@
                      by legacy initChart() for non-compare modes. Keep them in DOM but hidden. -->
                 <canvas id="lossChartDb" style="display: none;"></canvas>
                 <canvas id="lossChartDu" style="display: none;"></canvas>
+            </div>
+
+            <!-- Rainbow DQN Mode Content -->
+            <div id="rainbow-mode-content" style="display: none; flex-direction: column; gap: 2rem; margin-top: 2rem;">
+
+                <section id="rainbow-info-panel" class="info-panel card">
+                    <div class="panel-header">
+                        <h2>Rainbow DQN — 六合一強化的離線預訓練模型</h2>
+                        <span class="status success badge" style="background: linear-gradient(135deg, #f59e0b, #ef4444, #8b5cf6, #3b82f6, #10b981); color: #fff;">Pre-trained Loaded</span>
+                    </div>
+                    <p style="font-size: 0.9rem; color: #94a3b8; line-height: 1.7; margin-top: 0.5rem;">
+                        本模式 <b>不進行線上訓練</b>。Rainbow DQN 已由 <code>train_offline_rainbow.py</code>
+                        以 4-stage curriculum（4&times;4 &rarr; 4-7 矩形混合）離線訓練完成，
+                        權重存於 <code>trained_rainbow.pth</code>，
+                        Flask 後端僅在點擊驗證時推論。
+                    </p>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.8rem; margin-top: 1rem;">
+                        <span class="rainbow-feature-badge"
+                              style="background: rgba(239, 68, 68, 0.12); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4);">
+                            &#10003; Double DQN
+                        </span>
+                        <span class="rainbow-feature-badge"
+                              style="background: rgba(245, 158, 11, 0.12); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.4);">
+                            &#10003; Dueling Network
+                        </span>
+                        <span class="rainbow-feature-badge"
+                              style="background: rgba(16, 185, 129, 0.12); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.4);">
+                            &#10003; Prioritized Replay (PER)
+                        </span>
+                        <span class="rainbow-feature-badge"
+                              style="background: rgba(59, 130, 246, 0.12); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.4);">
+                            &#10003; Multi-step Returns (n=3)
+                        </span>
+                        <span class="rainbow-feature-badge"
+                              style="background: rgba(139, 92, 246, 0.18); color: #c4b5fd; border: 1px solid rgba(139, 92, 246, 0.5);">
+                            &#9889; NoisyNet (replaces &epsilon;-greedy)
+                        </span>
+                        <span class="rainbow-feature-badge"
+                              style="background: rgba(236, 72, 153, 0.12); color: #f9a8d4; border: 1px solid rgba(236, 72, 153, 0.4);">
+                            &#10003; Distributional RL (C51)
+                        </span>
+                    </div>
+
+                    <div style="font-size: 0.9rem; color: #94a3b8; margin-top: 1.2rem; line-height: 1.6;">
+                        <p style="margin-bottom: 0.5rem;"><strong>網路架構：</strong>
+                            CNN trunk 共享特徵後分流到 Value / Advantage 兩個 NoisyLinear head；
+                            每個動作輸出一個 51-atom 機率分佈（V<sub>min</sub>=−10, V<sub>max</sub>=+10），
+                            最終 Q(s,a) = &Sigma;<sub>i</sub> z<sub>i</sub>&middot;p<sub>i</sub>。</p>
+                        <p style="margin-bottom: 0.5rem;"><strong>泛化亮點：</strong>
+                            單一網路支援所有 4&le;X&le;7、4&le;Y&le;7 的矩形網格（16 種尺寸），
+                            輸入 zero-pad 到 7&times;7，CNN 的 translation invariance 讓模型自動處理 (X,Y) &harr; (Y,X) 對稱。</p>
+                        <p style="margin: 0;"><strong>互動驗證：</strong>
+                            可在下方選擇尺寸並拖曳 Player / Goal / Pit / Wall 任意位置，按
+                            <b>&#129504; Run Verification</b> 後模型會以確定性 greedy policy 走出最佳路徑。</p>
+                    </div>
+
+                    <table class="hparam-table" style="margin-top: 1rem;">
+                        <thead>
+                            <tr><th>項目</th><th>設定</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td>Curriculum stages</td><td>4 stages &times; (X,Y) sampler，max(X,Y) 4 &rarr; 7</td></tr>
+                            <tr><td>Episodes / steps</td><td><code>9000</code> ep &asymp; <code>190k</code> env steps</td></tr>
+                            <tr><td>Atoms (C51)</td><td><code>51</code>, V<sub>min</sub>=<code>-10</code>, V<sub>max</sub>=<code>+10</code></td></tr>
+                            <tr><td>Multi-step</td><td><code>n = 3</code></td></tr>
+                            <tr><td>Discount &gamma;</td><td><code>0.99</code></td></tr>
+                            <tr><td>Batch size</td><td><code>128</code>, learn every <code>4</code> env steps</td></tr>
+                            <tr><td>Replay buffer (PER)</td><td><code>50,000</code>, &alpha;=0.6, &beta; 0.4 &rarr; 1.0</td></tr>
+                            <tr><td>Target sync</td><td>每 <code>1000</code> learn steps hard-copy</td></tr>
+                            <tr><td>Optimizer / LR</td><td><code>Adam</code>, <code>2.5e-4 &rarr; 1e-5</code> cosine</td></tr>
+                            <tr><td>Exploration</td><td><b>NoisyNet</b>（factorised Gaussian, head-only）</td></tr>
+                        </tbody>
+                    </table>
+                </section>
+
+                <section id="rainbow-validation-panel" class="card">
+                    <div class="panel-header">
+                        <h2>Rainbow Interactive Validation Grid</h2>
+                        <span id="rainbow-validation-status" class="status badge">Awaiting Verification...</span>
+                    </div>
+                    <p style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 1rem;">
+                        選擇 Width / Height（皆為 4&ndash;7），然後拖曳網格中的 Player、Goal、Pit、Wall 到任意空格。
+                        重疊會自動回到原位（會抖動提示）。準備好後按 <b>&#129504; Run Verification</b>。
+                    </p>
+                    <div style="display: flex; gap: 1.2rem; justify-content: center; align-items: flex-end; flex-wrap: wrap; margin-bottom: 1.2rem;">
+                        <div class="control-group" style="align-items: flex-start;">
+                            <label for="rainbow-width" style="font-size: 0.85rem; color: #94a3b8;">Width (X):</label>
+                            <select id="rainbow-width" class="input-select"
+                                    style="padding: 0.5rem 0.8rem; background: var(--card-bg); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 8px; min-width: 80px;">
+                                <option value="4">4</option>
+                                <option value="5">5</option>
+                                <option value="6">6</option>
+                                <option value="7" selected>7</option>
+                            </select>
+                        </div>
+                        <div class="control-group" style="align-items: flex-start;">
+                            <label for="rainbow-height" style="font-size: 0.85rem; color: #94a3b8;">Height (Y):</label>
+                            <select id="rainbow-height" class="input-select"
+                                    style="padding: 0.5rem 0.8rem; background: var(--card-bg); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 8px; min-width: 80px;">
+                                <option value="4">4</option>
+                                <option value="5">5</option>
+                                <option value="6">6</option>
+                                <option value="7" selected>7</option>
+                            </select>
+                        </div>
+                        <button id="rainbow-verify-btn" class="primary-btn">&#129504; Run Verification</button>
+                        <button id="rainbow-shuffle-btn" class="secondary-btn">&#127922; Shuffle</button>
+                    </div>
+                    <div id="rainbow-grid-wrapper" style="position: relative; width: fit-content; margin: 0 auto;">
+                        <div id="rainbow-validation-grid" class="grid-container">
+                            <!-- Rainbow validation grid cells generated by JS -->
+                        </div>
+                        <svg id="rainbow-route-svg"
+                             style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20;"></svg>
+                    </div>
+                    <div class="legend" style="margin-top: 1.2rem;">
+                        <div class="legend-item"><span class="cell player"></span> Player</div>
+                        <div class="legend-item"><span class="cell goal"></span> Goal</div>
+                        <div class="legend-item"><span class="cell pit"></span> Pit</div>
+                        <div class="legend-item"><span class="cell wall"></span> Wall</div>
+                    </div>
+                </section>
             </div>
         </main>
     </div>
