@@ -477,11 +477,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (randomizeBtn)    randomizeBtn.style.display  = hideTrainUI ? 'none' : '';
         const epochsGroupCmp = document.getElementById('epochs-group');
         if (epochsGroupCmp)  epochsGroupCmp.style.display = hideTrainUI ? 'none' : '';
-        // Hide top width/height inputs in rainbow mode (rainbow uses its own X/Y selects)
+        // Hide top width/height inputs in rainbow / compare mode
+        // (rainbow uses its own X/Y selects; compare is fixed 4×4 pre-trained)
         const widthGroup  = widthInput  ? widthInput.closest('.control-group')  : null;
         const heightGroup = heightInput ? heightInput.closest('.control-group') : null;
-        if (widthGroup)  widthGroup.style.display  = isRainbow ? 'none' : '';
-        if (heightGroup) heightGroup.style.display = isRainbow ? 'none' : '';
+        const hideGridSize = isRainbow || isCompare;
+        if (widthGroup)  widthGroup.style.display  = hideGridSize ? 'none' : '';
+        if (heightGroup) heightGroup.style.display = hideGridSize ? 'none' : '';
         
         const lightningInfoPanel = document.getElementById('lightning-info-panel');
         if (lightningInfoPanel) {
@@ -532,6 +534,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!isLightning) initChart();
         setupGrids();
+        // Enable drag attribute on compare grids so the Player marker can be dragged.
+        if (isCompare && typeof window.enableCompareDragAttr === 'function') {
+            window.enableCompareDragAttr();
+        }
         trainStatusEl.innerText = 'Awaiting Training...';
         trainStatusEl.className = 'status badge';
         replayStatusEl.innerText = 'Awaiting Training...';
@@ -765,6 +771,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const posDisp = document.getElementById('compare-player-pos');
         if (posDisp) { posDisp.innerText = `(${r}, ${c})`; posDisp.style.color = '#f59e0b'; }
+
+        // Re-mark the new player cells as draggable (and other cells as drop targets).
+        if (typeof window.enableCompareDragAttr === 'function') window.enableCompareDragAttr();
     }
 
     function _renderCompareSummary(elemId, route, label) {
@@ -842,6 +851,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Event delegation: cells inside compare grids get re-rendered by initGrid(),
     // so bind on the container once instead of per-cell.
+    let compareDragged = null;
     [replayGridContainerDb, replayGridContainerDu].forEach(grid => {
         if (!grid) return;
         grid.addEventListener('click', (e) => {
@@ -852,12 +862,86 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!m) return;
             handleCompareCellClick(parseInt(m[1]), parseInt(m[2]));
         });
+
+        // Drag support: Player marker can be dragged onto any empty cell.
+        grid.addEventListener('dragstart', (e) => {
+            if (modeSelect.value !== 'compare') return;
+            const cell = e.target.closest('.cell');
+            if (!cell || !cell.classList.contains('player')) { e.preventDefault(); return; }
+            compareDragged = cell;
+            e.dataTransfer.effectAllowed = 'move';
+            setTimeout(() => cell.style.opacity = '0.5', 0);
+        });
+        grid.addEventListener('dragend', (e) => {
+            const cell = e.target.closest('.cell');
+            if (cell) cell.style.opacity = '1';
+            compareDragged = null;
+        });
+        grid.addEventListener('dragover', (e) => {
+            if (modeSelect.value !== 'compare' || !compareDragged) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+        });
+        grid.addEventListener('drop', (e) => {
+            if (modeSelect.value !== 'compare' || !compareDragged) return;
+            e.preventDefault();
+            const cell = e.target.closest('.cell');
+            if (!cell || !cell.id) return;
+            if (cell.classList.contains('goal') ||
+                cell.classList.contains('pit')  ||
+                cell.classList.contains('wall')) return;
+            const m = cell.id.match(/-cell-(\d+)-(\d+)$/);
+            if (!m) return;
+            handleCompareCellClick(parseInt(m[1]), parseInt(m[2]));
+        });
     });
 
-    const comparePlayBtn  = document.getElementById('compare-play-btn');
-    if (comparePlayBtn)  comparePlayBtn.addEventListener('click', playCompare);
-    const compareResetBtn = document.getElementById('compare-reset-btn');
-    if (compareResetBtn) compareResetBtn.addEventListener('click', resetCompare);
+    // Make every cell on the two compare grids draggable so dragstart fires;
+    // the handler above filters to allow only .player cells to actually start.
+    function enableCompareDragAttr() {
+        [replayGridContainerDb, replayGridContainerDu].forEach(grid => {
+            if (!grid) return;
+            grid.querySelectorAll('.cell').forEach(cell => {
+                cell.setAttribute('draggable', 'true');
+                if (!cell.classList.contains('goal') &&
+                    !cell.classList.contains('pit')  &&
+                    !cell.classList.contains('wall')) {
+                    cell.style.cursor = cell.classList.contains('player') ? 'grab' : 'pointer';
+                } else {
+                    cell.style.cursor = 'default';
+                }
+            });
+        });
+    }
+    window.enableCompareDragAttr = enableCompareDragAttr;
+
+    function randomComparePlayerPos() {
+        const w = parseInt(widthInput.value);
+        const h = parseInt(heightInput.value);
+        const empties = [];
+        for (let r = 0; r < h; r++) {
+            for (let c = 0; c < w; c++) {
+                const cell = document.getElementById(`${replayGridContainerDb.id}-cell-${r}-${c}`);
+                if (cell &&
+                    !cell.classList.contains('goal') &&
+                    !cell.classList.contains('pit')  &&
+                    !cell.classList.contains('wall')) {
+                    empties.push([r, c]);
+                }
+            }
+        }
+        if (empties.length === 0) return;
+        const [r, c] = empties[Math.floor(Math.random() * empties.length)];
+        handleCompareCellClick(r, c);
+        enableCompareDragAttr();
+    }
+
+    const comparePlayBtn   = document.getElementById('compare-play-btn');
+    if (comparePlayBtn)   comparePlayBtn.addEventListener('click', playCompare);
+    const compareResetBtn  = document.getElementById('compare-reset-btn');
+    if (compareResetBtn)  compareResetBtn.addEventListener('click', () => { resetCompare(); enableCompareDragAttr(); });
+    const compareRandomBtn = document.getElementById('compare-random-btn');
+    if (compareRandomBtn) compareRandomBtn.addEventListener('click', randomComparePlayerPos);
 
     // Validation Grid Logic
     let draggedElement = null;
