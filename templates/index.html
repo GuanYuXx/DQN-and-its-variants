@@ -7,15 +7,57 @@
     <title>Experience Replay DQN Visualization</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- KaTeX for math formulas (Phase 2 of SITE_OPTIMIZATION) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+            onload="renderMathInElement(document.body, {delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}]});"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
 <body>
-    <div class="container">
+    <!-- Sticky top navigation: 4 anchors map to the 4 HW3 sub-tasks. -->
+    <nav class="site-nav">
+        <div class="site-nav-inner">
+            <a class="site-nav-brand" href="#top">DQN&nbsp;&amp;&nbsp;Variants</a>
+            <div class="site-nav-links">
+                <a class="site-nav-link" data-mode="basic"            href="#section-hw3-1">HW3-1<span class="nv-sub">Naive</span></a>
+                <a class="site-nav-link" data-mode="compare"          href="#section-hw3-2">HW3-2<span class="nv-sub">Double&nbsp;/&nbsp;Dueling</span></a>
+                <a class="site-nav-link" data-mode="lightning_random" href="#section-hw3-3">HW3-3<span class="nv-sub">Lightning</span></a>
+                <a class="site-nav-link" data-mode="rainbow_random"   href="#section-hw3-4">HW3-4 <span class="nv-star">★</span><span class="nv-sub">Rainbow</span></a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container" id="top">
         <header>
             <h1>Experience Replay DQN</h1>
             <p>Training a Deep Q-Network on a dynamic Gridworld environment.</p>
         </header>
+
+        <!-- Hero cards: one click switches mode + scrolls to the corresponding section. -->
+        <section class="hero-cards">
+            <a class="hero-card" data-mode="basic" href="#section-hw3-1">
+                <div class="hero-card-tag">HW3-1 · 30%</div>
+                <div class="hero-card-title">Naive DQN</div>
+                <div class="hero-card-desc">Experience Replay + <b>Target Network</b><br><span class="hero-card-meta">static mode · MSE · ε 1.0→0.1</span></div>
+            </a>
+            <a class="hero-card" data-mode="compare" href="#section-hw3-2">
+                <div class="hero-card-tag">HW3-2 · 40%</div>
+                <div class="hero-card-title">Double <span style="opacity:.5">&amp;</span> Dueling</div>
+                <div class="hero-card-desc">兩種強化變體，<b>同場 rollout 比較</b><br><span class="hero-card-meta">player mode · 離線預訓練</span></div>
+            </a>
+            <a class="hero-card" data-mode="lightning_random" href="#section-hw3-3">
+                <div class="hero-card-tag">HW3-3 · 30%</div>
+                <div class="hero-card-title">Enhance + Lightning</div>
+                <div class="hero-card-desc">PER · Cosine LR · Grad Clip<br><span class="hero-card-meta">random mode · <code>LitDQN_PER</code></span></div>
+            </a>
+            <a class="hero-card hero-card-star" data-mode="rainbow_random" href="#section-hw3-4">
+                <div class="hero-card-tag">HW3-4 ★ Bonus</div>
+                <div class="hero-card-title">Rainbow DQN</div>
+                <div class="hero-card-desc">六合一：Double + Dueling + PER + N-step + Noisy + C51<br><span class="hero-card-meta">random · CNN · 4×4–7×7</span></div>
+            </a>
+        </section>
 
         <main>
             <section class="controls-panel card">
@@ -65,7 +107,34 @@
 
             <div id="basic-mode-content">
                 <section id="basic-info-panel" class="info-panel card" style="margin-bottom: 2rem;">
+                    <a id="section-hw3-1" class="anchor-target" aria-hidden="true"></a>
                     <h3>HW3-1: Naive DQN（static mode）— 方法與超參說明</h3>
+
+                    <!-- Motivation + key formula (Phase 2: KaTeX) -->
+                    <div class="technique-motivation">
+                        <p style="margin-bottom: 0.4rem;"><strong style="color:#f8fafc;">問題動機 / Motivation：</strong>
+                        DRL in Action 程式 3.5 的 vanilla DQN 用同一個 online net 同時計算
+                        <code>Q(s,a)</code> 與 bootstrap <code>max Q(s',a')</code>，目標值會隨著梯度更新而漂移，造成 <b>moving target</b> 振盪。
+                        HW3-1 在原 Experience Replay 之上加入 <b>Target Network</b>（程式 3.7/3.8）：用 <code>copy.deepcopy(model)</code> 凍結一份權重專門算 bootstrap value，每 <code>sync_freq</code> 步硬同步一次，大幅穩定 Q-value 估計。
+                        </p>
+                    </div>
+                    <div class="formula-block">
+                        <div class="formula-label">Target rule（含 Target Network）</div>
+                        $$y \;=\; r + \gamma \cdot \max_{a'} Q_{\theta^{-}}(s', a')\qquad\text{Loss}\;=\;\bigl(\,Q_{\theta}(s,a) - y\,\bigr)^2$$
+                    </div>
+
+                    <!-- Architecture diagram (Phase 2: pure CSS boxes + arrows) -->
+                    <div class="arch-diagram" aria-label="Naive DQN architecture">
+                        <div class="arch-box"><b>Input</b><br><span class="arch-sub">render_np<br>1×64</span></div>
+                        <div class="arch-arrow">→</div>
+                        <div class="arch-box"><b>Linear<br>64→150</b><br><span class="arch-sub">ReLU</span></div>
+                        <div class="arch-arrow">→</div>
+                        <div class="arch-box"><b>Linear<br>150→100</b><br><span class="arch-sub">ReLU</span></div>
+                        <div class="arch-arrow">→</div>
+                        <div class="arch-box arch-box-out"><b>Linear<br>100→4</b><br><span class="arch-sub">Q(s,·)</span></div>
+                    </div>
+                    <p class="arch-caption">θ：online net｜θ⁻：target net（每 500 步 hard-copy）</p>
+
                     <div style="font-size: 0.9rem; color: #94a3b8; margin-top: 0.5rem; line-height: 1.6;">
                         <p style="margin-bottom: 0.5rem;"><strong>環境：</strong>
                             4&times;4 <code>static</code> 模式 — Player (0,3) / Goal (0,0) / Pit (0,1) / Wall (1,1) 全部固定，
@@ -100,7 +169,34 @@
                     </div>
                 </section>
                 <section id="lightning-info-panel" class="info-panel card" style="display: none; margin-bottom: 2rem;">
-                    <h3>Enhance DQN (PyTorch Lightning) 特色與架構說明</h3>
+                    <a id="section-hw3-3" class="anchor-target" aria-hidden="true"></a>
+                    <h3>HW3-3: Enhance DQN (PyTorch Lightning) 特色與架構說明</h3>
+
+                    <div class="technique-motivation">
+                        <p style="margin-bottom: 0.5rem;"><strong style="color:#f8fafc;">問題動機 / Motivation：</strong>
+                        Random mode 每個 episode 把 P/G/Pit/W 全部洗牌，模型 <b>不能死背</b>，必須從「當前畫面」推路徑。
+                        為了應付這種高方差環境，本實作把多種穩定技巧整合到 PyTorch Lightning 模組 <code>LitDQN_PER</code> 內：<b>PER</b>（SumTree-based proportional priority，把高 TD-error sample 多看幾次）、<b>Double target rule</b>、<b>CosineAnnealingLR</b>（前期大步、後期穩定）、<b>Gradient Clipping</b>（防爆炸）、<b>Target Network step-based sync</b>。
+                        </p>
+                    </div>
+                    <div class="formula-block">
+                        <div class="formula-label">PER：以 |TD-error| 為優先度抽樣（α=0.6），用 IS-weight 還原無偏估計（β: 0.4→1.0）</div>
+                        $$P(i) \;=\; \frac{p_i^{\alpha}}{\sum_k p_k^{\alpha}}\,,\quad
+                          w_i \;=\; \Bigl(\frac{1}{N\cdot P(i)}\Bigr)^{\!\beta}\,,\quad
+                          \mathcal{L} \;=\; \tfrac{1}{B}\sum_i w_i \cdot \bigl(Q_{\theta}(s_i,a_i) - y_i\bigr)^2$$
+                    </div>
+
+                    <div class="arch-diagram" aria-label="Enhance DQN Lightning architecture">
+                        <div class="arch-box"><b>Input<br>1×64</b></div>
+                        <div class="arch-arrow">→</div>
+                        <div class="arch-box"><b>FC<br>64→256</b></div>
+                        <div class="arch-arrow">→</div>
+                        <div class="arch-box"><b>FC<br>256→256</b></div>
+                        <div class="arch-arrow">→</div>
+                        <div class="arch-box"><b>FC<br>256→128</b></div>
+                        <div class="arch-arrow">→</div>
+                        <div class="arch-box arch-box-out"><b>FC<br>128→4</b></div>
+                    </div>
+                    <p class="arch-caption">PyTorch Lightning 封裝：訓練 loop / optimizer / scheduler / 硬體加速統一由 <code>LitDQN_PER</code> 管理，部署端 <code>app.py</code> 只負責推論。</p>
                     <div style="font-size: 0.9rem; color: #94a3b8; margin-top: 0.5rem; line-height: 1.6;">
                         <p style="margin-bottom: 0.5rem;"><strong>封裝與模組化 (Encapsulation & Modularity):</strong><br>
                             訓練邏輯與 Web 介面完全解耦。<b>train_offline.py</b> 是一支可獨立執行的 Python 腳本，在終端機直接執行 <code>python train_offline.py</code> 即可完整訓練模型，無需啟動 Flask 伺服器。訓練完畢後模型權重儲存為 <code>trained_lightning.pth</code>；Flask 後端 (<b>app.py</b>) 僅在使用者點擊驗證時載入此檔案進行推論，實現了「訓練」與「部署驗證」的完全分離。PyTorch Lightning 將訓練迴圈、優化器更新、LR Scheduler 與硬體加速邏輯統一封裝於 <code>LitDQN_PER</code> 模組，大幅減少樣板程式碼 (Boilerplate)。</p>
@@ -257,10 +353,45 @@
 
                 <!-- Shared control bar: Player picker + Play button -->
                 <section id="compare-control-panel" class="card">
+                    <a id="section-hw3-2" class="anchor-target" aria-hidden="true"></a>
                     <div class="panel-header">
-                        <h2>離線預訓練模型 — 互動驗證</h2>
+                        <h2>HW3-2 · 離線預訓練模型 — 互動驗證</h2>
                         <span id="compare-status" class="status success badge">已載入預訓練模型</span>
                     </div>
+                    <div class="technique-motivation">
+                        <p style="margin-bottom: 0.5rem;"><strong style="color:#f8fafc;">問題動機 / Motivation：</strong>
+                        Vanilla DQN 用同一 net 同時「選 argmax 動作」與「估那個動作的 Q 值」，使得 max 算子帶來系統性
+                        <b>Q-value overestimation</b>。Double DQN 把「選」與「估」拆給 online / target 兩個 net；Dueling 則改網路架構，把 trunk 後分成
+                        <b>V(s)</b>（與動作無關的狀態價值）和 <b>A(s, a)</b>（動作優勢），再 mean-subtract 合併為 Q——讓網路在「動作不影響結果」的狀態下能單獨學狀態價值。
+                        </p>
+                    </div>
+                    <div class="formula-block">
+                        <div class="formula-label">Double DQN target rule（動作選擇 vs 估值解耦）</div>
+                        $$y \;=\; r + \gamma \cdot Q_{\theta^{-}}\!\Bigl(s',\;\arg\max_{a'} Q_{\theta}(s', a')\Bigr)$$
+                    </div>
+                    <div class="formula-block">
+                        <div class="formula-label">Dueling decomposition（mean-subtraction 確保 V/A 可辨識）</div>
+                        $$Q(s,a) \;=\; V(s) \;+\; \Bigl(A(s,a) \;-\; \tfrac{1}{|\mathcal{A}|}\!\sum_{a'} A(s, a')\Bigr)$$
+                    </div>
+
+                    <div class="arch-diagram" aria-label="Dueling network architecture">
+                        <div class="arch-box"><b>Input<br>1×64</b></div>
+                        <div class="arch-arrow">→</div>
+                        <div class="arch-box"><b>Linear<br>64→150</b><br><span class="arch-sub">shared<br>trunk</span></div>
+                        <div class="arch-branch">
+                            <div class="arch-row">
+                                <div class="arch-arrow">↗</div>
+                                <div class="arch-box arch-box-v"><b>V head</b><br><span class="arch-sub">150→100→1</span></div>
+                            </div>
+                            <div class="arch-row">
+                                <div class="arch-arrow">↘</div>
+                                <div class="arch-box arch-box-a"><b>A head</b><br><span class="arch-sub">150→100→4</span></div>
+                            </div>
+                        </div>
+                        <div class="arch-arrow">→</div>
+                        <div class="arch-box arch-box-out"><b>Q(s,·)</b><br><span class="arch-sub">V + (A−mean)</span></div>
+                    </div>
+                    <p class="arch-caption">Double：保持上半 trunk + 單一 head，target rule 改用上方公式｜Dueling：架構改如圖，target rule 維持 vanilla（隔離「<i>架構</i>」貢獻）</p>
                     <p style="font-size: 0.9rem; color: #94a3b8; line-height: 1.6;">
                         本模式 <b>不進行線上訓練</b>。Double DQN 與 Dueling DQN 已由
                         <code>train_offline_compare.py</code> 以
@@ -433,10 +564,52 @@
             <div id="rainbow-mode-content" style="display: none; flex-direction: column; gap: 2rem; margin-top: 2rem;">
 
                 <section id="rainbow-info-panel" class="info-panel card">
+                    <a id="section-hw3-4" class="anchor-target" aria-hidden="true"></a>
                     <div class="panel-header">
-                        <h2>Rainbow DQN — 六合一強化的離線預訓練模型</h2>
+                        <h2>HW3-4 · Rainbow DQN — 六合一強化的離線預訓練模型</h2>
                         <span class="status success badge" style="background: linear-gradient(135deg, #f59e0b, #ef4444, #8b5cf6, #3b82f6, #10b981); color: #fff;">Pre-trained Loaded</span>
                     </div>
+
+                    <div class="technique-motivation">
+                        <p style="margin-bottom: 0.5rem;"><strong style="color:#f8fafc;">問題動機 / Motivation：</strong>
+                        Rainbow (Hessel et al. 2017) 整合 6 種獨立改進；本實作再加上 <b>CNN trunk</b> + <b>可變網格 4×4 ~ 7×7</b> + <b>4-stage curriculum</b>。
+                        最關鍵：用 <b>C51 distributional</b> 預測整個回報分佈而非單一期望值，再用 <b>NoisyNet</b> 取代 ε-greedy（每次 forward 自動 reset_noise 探索）。
+                        </p>
+                    </div>
+                    <div class="formula-block">
+                        <div class="formula-label">Distributional Q（C51, 51 atoms）— 用機率分佈代替點估計</div>
+                        $$Q(s,a) \;=\; \sum_{i=0}^{N-1} z_i \cdot p_i(s,a)\,,\quad
+                          z_i = V_{\min} + i\cdot\Delta z\,,\quad
+                          (V_{\min}, V_{\max}, N) = (-10,\,+10,\,51)$$
+                    </div>
+                    <div class="formula-block">
+                        <div class="formula-label">NoisyLinear（factorised Gaussian）— 把 ε-greedy 內化進權重</div>
+                        $$y \;=\; (\mu^{w} + \sigma^{w}\!\odot\!\varepsilon^{w})\,x \;+\; (\mu^{b} + \sigma^{b}\!\odot\!\varepsilon^{b})\,,\quad
+                          \varepsilon^{w}_{i,j} = f(\varepsilon_i)\,f(\varepsilon_j)$$
+                    </div>
+
+                    <div class="arch-diagram" aria-label="Rainbow CNN architecture">
+                        <div class="arch-box"><b>Input</b><br><span class="arch-sub">4×7×7<br>zero-pad</span></div>
+                        <div class="arch-arrow">→</div>
+                        <div class="arch-box"><b>Conv 3×3<br>4→32</b></div>
+                        <div class="arch-arrow">→</div>
+                        <div class="arch-box"><b>Conv 3×3<br>32→64</b></div>
+                        <div class="arch-arrow">→</div>
+                        <div class="arch-box"><b>FC<br>3136→512</b><br><span class="arch-sub">shared</span></div>
+                        <div class="arch-branch">
+                            <div class="arch-row">
+                                <div class="arch-arrow">↗</div>
+                                <div class="arch-box arch-box-v"><b>V head</b><br><span class="arch-sub">NoisyLinear<br>512→256→51</span></div>
+                            </div>
+                            <div class="arch-row">
+                                <div class="arch-arrow">↘</div>
+                                <div class="arch-box arch-box-a"><b>A head</b><br><span class="arch-sub">NoisyLinear<br>512→256→4×51</span></div>
+                            </div>
+                        </div>
+                        <div class="arch-arrow">→</div>
+                        <div class="arch-box arch-box-out"><b>C51<br>(B,4,51)</b><br><span class="arch-sub">softmax<br>+Σz·p</span></div>
+                    </div>
+                    <p class="arch-caption">CNN trunk 共享空間特徵，Dueling V/A 在 per-atom 層級組合（先合分佈再 dueling-mean 校正），最後 softmax 得 51-atom 機率，乘以 atom 值求出 Q。</p>
                     <p style="font-size: 0.9rem; color: #94a3b8; line-height: 1.7; margin-top: 0.5rem;">
                         本模式 <b>不進行線上訓練</b>。Rainbow DQN 已由 <code>train_offline_rainbow.py</code>
                         以 4-stage curriculum（4&times;4 &rarr; 4-7 矩形混合）離線訓練完成，

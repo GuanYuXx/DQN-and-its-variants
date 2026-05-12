@@ -500,8 +500,11 @@ def train_comparison_stream(width=4, height=4, epochs=500, batch_size=200, mem_s
             y[i] = (np.array(x[i:i+N]) @ conv)/N
         return y[-1]
     
-    sync_freq = 10  # Target network sync frequency
-    
+    # Target network sync — step-based to match the offline trainer
+    # (train_offline_compare.py / train_dqn_stream both use 500 env-step sync).
+    sync_freq = 500
+    step_counter = 0
+
     for i in range(epochs):
         # ---------------- Double DQN Episode ----------------
         game_db = Gridworld(width=width, height=height, mode='player', custom_positions=custom_positions)
@@ -557,7 +560,12 @@ def train_comparison_stream(width=4, height=4, epochs=500, batch_size=200, mem_s
                 all_losses_double.append(loss.item())
                 loss_count_db += 1
                 optimizer_double.step()
-                
+
+                step_counter += 1
+                if step_counter % sync_freq == 0:
+                    target_double.load_state_dict(model_double.state_dict())
+                    target_dueling.load_state_dict(model_dueling.state_dict())
+
             if reward_db != -1 or mov_db > max_moves:
                 status_db = 0
                 player_pos = game_db.board.components['Player'].pos
@@ -622,11 +630,9 @@ def train_comparison_stream(width=4, height=4, epochs=500, batch_size=200, mem_s
 
         if epsilon_decay and epsilon > 0.1:
             epsilon -= (1/epochs)
-            
-        if (i+1) % sync_freq == 0:
-            target_double.load_state_dict(model_double.state_dict())
-            target_dueling.load_state_dict(model_dueling.state_dict())
-            
+
+        # Target sync is now step-based (see step_counter inside the episode loops).
+
         if interval > 0 and (i + 1) % interval == 0:
             captured_routes_double.append({'epoch': i + 1, 'route': current_route_db})
             captured_routes_dueling.append({'epoch': i + 1, 'route': current_route_du})

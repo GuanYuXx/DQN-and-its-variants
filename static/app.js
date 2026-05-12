@@ -444,6 +444,46 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // SITE_OPTIMIZATION Phase 1: nav anchor + hero card → switch mode + scroll
+    // ─────────────────────────────────────────────────────────────────────
+    function _switchModeAndScroll(modeVal, anchorId) {
+        if (modeSelect.value !== modeVal) {
+            modeSelect.value = modeVal;
+            modeSelect.dispatchEvent(new Event('change'));
+        }
+        // Wait one frame so the mode-content becomes visible before scrolling.
+        requestAnimationFrame(() => {
+            const tgt = document.getElementById(anchorId);
+            if (tgt) tgt.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    }
+
+    document.querySelectorAll('.site-nav-link, .hero-card').forEach(el => {
+        el.addEventListener('click', (e) => {
+            const mode = el.dataset.mode;
+            const href = el.getAttribute('href');
+            if (!mode || !href || !href.startsWith('#')) return;
+            e.preventDefault();
+            _switchModeAndScroll(mode, href.slice(1));
+            // Mark active state on nav links.
+            document.querySelectorAll('.site-nav-link').forEach(n => n.classList.remove('active'));
+            const navLink = document.querySelector(`.site-nav-link[data-mode="${mode}"]`);
+            if (navLink) navLink.classList.add('active');
+        });
+    });
+
+    // Keep nav active state in sync when user changes <select> directly.
+    modeSelect.addEventListener('change', () => {
+        const mode = modeSelect.value;
+        document.querySelectorAll('.site-nav-link').forEach(n => {
+            n.classList.toggle('active', n.dataset.mode === mode);
+        });
+    });
+    // Set initial active state for the default mode.
+    const _initialNav = document.querySelector(`.site-nav-link[data-mode="${modeSelect.value}"]`);
+    if (_initialNav) _initialNav.classList.add('active');
+
     // Init
     setupGrids();
     initChart();
