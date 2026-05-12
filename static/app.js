@@ -616,6 +616,19 @@ document.addEventListener('DOMContentLoaded', () => {
     heightInput.addEventListener('change', onGridSizeChange);
 
     randomizeBtn.addEventListener('click', () => {
+        // In HW3-3 (lightning_random) the main grid is hidden — the visible
+        // grid is the Interactive Validation grid. Re-init it to reshuffle.
+        if (modeSelect.value === 'lightning_random') {
+            const w = parseInt(widthInput.value);
+            const h = parseInt(heightInput.value);
+            if (typeof initValidationGrid === 'function') initValidationGrid(w, h);
+            const valStatus = document.getElementById('validation-status');
+            if (valStatus) {
+                valStatus.innerText = 'Ready to Verify';
+                valStatus.className = 'status badge';
+            }
+            return;
+        }
         randomizePositions();
         syncReplayGrid();
     });
